@@ -1,0 +1,1837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#F5F6F8">
+<meta name="description" content="CashSight learns how late each customer really pays and shows the week your cash runs short, before it comes.">
+<title>CashSight</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F766E'/%3E%3Cpath d='M7 20l6-6 4 4 8-8' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script>
+/* Theme before first paint: saved choice wins, else device setting. */
+(function(){
+  var theme = null;
+  try { theme = localStorage.getItem("cashsight.theme"); } catch(e){}
+  if (theme !== "light" && theme !== "dark"){
+    theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  document.documentElement.setAttribute("data-theme", theme);
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", theme === "dark" ? "#0B0E13" : "#F5F6F8");
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+/* ---------- colour tokens: every colour lives here ---------- */
+:root, [data-theme="light"]{
+  --bg:#F5F6F8; --card:#FFFFFF; --card-2:#F7F8FA; --track:#ECEEF2; --border:#E4E7EC; --border-strong:#CDD2DA;
+  --text:#101828; --text-2:#344054; --muted:#5B6472;
+  --accent:#0F766E; --accent-hover:#115E59; --on-accent:#FFFFFF; --accent-soft:#E6F4F2;
+  --red:#B42318; --red-bg:#FEF3F2; --red-border:#FDA29B; --red-soft-text:#B42318;
+  --green:#067647; --green-bg:#ECFDF3; --green-border:#75E0A7;
+  --amber-text:#93370D; --amber-bg:#FEF0C7;
+  --tag-red-text:#B42318; --tag-red-bg:#FEE4E2;
+  --row-short:#FEF3F2; --focus:#0F766E;
+  --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+  --shadow-pop:0 1px 2px rgba(16,24,40,.08), 0 2px 6px rgba(16,24,40,.08);
+  --chart-grid:#EEF0F3; --chart-tick:#5B6472;
+  --chart-in:rgba(6,118,71,.42); --chart-out:rgba(217,45,32,.34);
+  --chart-real:#0F766E; --chart-real-fill:rgba(15,118,110,.10);
+  --chart-due:#667085; --chart-buffer:#D92D20; --chart-belowzero:rgba(217,45,32,.06);
+  color-scheme: light;
+}
+[data-theme="dark"]{
+  --bg:#0B0E13; --card:#13181F; --card-2:#1A2029; --track:#0F1318; --border:#232A35; --border-strong:#364152;
+  --text:#F2F4F7; --text-2:#D0D5DD; --muted:#A4ADBB;
+  --accent:#2DD4BF; --accent-hover:#5EEAD4; --on-accent:#032420; --accent-soft:#0F2A28;
+  --red:#FF7A70; --red-bg:#2B1416; --red-border:#7A2A2A; --red-soft-text:#FFB4AB;
+  --green:#4ADE80; --green-bg:#0E2418; --green-border:#1F5C3A;
+  --amber-text:#FCD34D; --amber-bg:#2E230D;
+  --tag-red-text:#FFB4AB; --tag-red-bg:#3D1719;
+  --row-short:#26151A; --focus:#5EEAD4;
+  --shadow:0 1px 2px rgba(0,0,0,.45);
+  --shadow-pop:0 1px 2px rgba(0,0,0,.5), 0 4px 12px rgba(0,0,0,.35);
+  --chart-grid:#1E252F; --chart-tick:#A4ADBB;
+  --chart-in:rgba(52,211,153,.62); --chart-out:rgba(255,122,112,.58);
+  --chart-real:#2DD4BF; --chart-real-fill:rgba(45,212,191,.14);
+  --chart-due:#B3BCC9; --chart-buffer:#FF7A70; --chart-belowzero:rgba(255,122,112,.08);
+  color-scheme: dark;
+}
+
+/* ---------- base ---------- */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  line-height:1.5;-webkit-font-smoothing:antialiased}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1120px;margin:0 auto;padding:28px 24px 64px}
+section{margin-top:20px}
+.card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--border);padding:22px 24px}
+[data-theme="light"] .card{border-color:transparent}
+h1{font-size:22px;line-height:1.2;margin:0;letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 14px;font-weight:650;letter-spacing:-.005em}
+.muted{color:var(--muted)}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- header ---------- */
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.logo{width:40px;height:40px;border-radius:11px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;flex:none}
+.logo svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.subtitle{color:var(--muted);margin:2px 0 0;font-size:14px}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* segmented control: a quiet track, the chosen option lifts */
+.seg{display:inline-flex;background:var(--track);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;
+  min-height:34px;min-width:40px;padding:0 12px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.seg button:hover{color:var(--text)}
+.seg button.active{background:var(--card);color:var(--text);box-shadow:var(--shadow-pop)}
+.seg button svg.i{width:16px;height:16px}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font:inherit;font-size:14px;font-weight:600;
+  min-height:42px;padding:0 16px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s}
+.btn:hover{border-color:var(--border-strong);background:var(--card-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--text-2)}
+.btn.ghost:hover{background:var(--card-2);border-color:var(--border)}
+.btn.sm{min-height:36px;padding:0 12px;font-size:13px}
+.btn.icon{width:36px;padding:0;min-height:36px}
+.btn.done{color:var(--green);border-color:var(--green-border);background:var(--green-bg)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* inputs */
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label{font-size:12px;font-weight:600;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--text);background:var(--card-2);border:1px solid var(--border);border-radius:10px}
+.field input,.field select{font-size:14px;min-height:42px;padding:0 12px;width:100%}
+input:hover,select:hover,textarea:hover{border-color:var(--border-strong)}
+::placeholder{color:var(--muted)}
+
+/* ---------- summary ---------- */
+.summary{display:flex;gap:14px;align-items:flex-start;border-left:4px solid var(--green)}
+.summary.bad{border-left-color:var(--red)}
+.summary .badge{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--green-bg);color:var(--green)}
+.summary.bad .badge{background:var(--red-bg);color:var(--red)}
+.summary .badge svg.i{width:20px;height:20px}
+.summary .line{margin:0 0 4px;color:var(--text-2)}
+.summary .line:first-child{font-size:17px;font-weight:650;color:var(--text)}
+.summary .note{font-size:12px;color:var(--muted);margin-top:6px}
+
+/* ---------- KPI cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.kpi .label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.kpi .big{font-size:30px;line-height:1.15;font-weight:750;margin:8px 0 6px;white-space:nowrap;letter-spacing:-.02em}
+.kpi .sub{font-size:13px;color:var(--muted)}
+.neg{color:var(--red)}
+
+/* ---------- warnings ---------- */
+.warning{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--red-bg);color:var(--red-soft-text);border:1px solid var(--red-border);margin-top:8px;font-weight:500}
+.warning svg.i{margin-top:3px}
+.warning.info{background:var(--accent-soft);color:var(--text-2);border-color:transparent}
+.warning.info svg.i{color:var(--accent)}
+.warnings-more,.btn.more{margin-top:10px}
+.summary.pending{border-left-color:var(--accent)}
+.summary.pending .badge{background:var(--accent-soft);color:var(--accent)}
+.warning.ok{background:var(--green-bg);color:var(--green);border-color:var(--green-border)}
+
+/* ---------- chart ---------- */
+.chart-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.chart-head h2{margin:6px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px}
+.legend button{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:13px;font-weight:550;color:var(--text-2);
+  background:var(--card-2);border:1px solid var(--border);border-radius:999px;min-height:32px;padding:0 12px 0 10px;cursor:pointer}
+.legend button:hover{border-color:var(--border-strong)}
+.legend button[aria-pressed="false"]{opacity:.45}
+.legend button[aria-pressed="false"] span.lbl{text-decoration:line-through}
+.legend svg{width:26px;height:12px;flex:none;overflow:visible}
+#chartBox{height:340px;position:relative}
+
+/* ---------- lists ---------- */
+.chase-item{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border)}
+.chase-item:last-child{border-bottom:0;padding-bottom:0}
+.chase-item .btn{white-space:nowrap;flex:none}
+.chase-item:first-child{padding-top:0}
+.chase-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chase-top strong{font-weight:650}
+.chase-top .amt{font-weight:650}
+.chase-meta{font-size:13px;color:var(--muted);margin-top:3px}
+.chase-meta .sep{opacity:.5;margin:0 6px}
+.rank{width:26px;height:26px;border-radius:8px;background:var(--card-2);border:1px solid var(--border);font-size:12px;font-weight:700;display:grid;place-items:center;flex:none;color:var(--text-2)}
+.tag{display:inline-flex;align-items:center;font-size:11px;font-weight:650;padding:2px 8px;border-radius:999px;background:var(--amber-bg);color:var(--amber-text)}
+.tag.red{background:var(--tag-red-bg);color:var(--tag-red-text)}
+
+/* ---------- what-if ---------- */
+.whatif{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto auto;gap:12px;align-items:end}
+.whatif-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.whatif-head h2{margin:0}
+.whatif-tag{display:none;font-size:12px;font-weight:650;padding:3px 10px;border-radius:999px;background:var(--amber-bg);color:var(--amber-text)}
+.whatif-tag.on{display:inline-flex}
+.preview{margin-top:12px;font-size:14px;color:var(--text-2);min-height:21px}
+.preview b{color:var(--text)}
+.preview .up{color:var(--green);font-weight:650}
+.preview .down{color:var(--red);font-weight:650}
+
+/* ---------- tables ---------- */
+.tablebox{overflow-x:auto;margin:0 -4px;padding:0 4px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+th{font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--card-2)}
+th:first-child{border-top-left-radius:8px} th:last-child{border-top-right-radius:8px}
+tbody tr:last-child td{border-bottom:0}
+td.right,th.right{text-align:right}
+td.right{font-variant-numeric:tabular-nums}
+tr.short td{background:var(--row-short)}
+td input,td select{font-size:13px;min-height:36px;padding:0 10px;width:112px}
+td input.wide{width:210px}
+td select{width:84px}
+
+/* ---------- data panel ---------- */
+.disclosure{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:0;padding:0;
+  font:inherit;font-size:15px;font-weight:650;color:var(--text);cursor:pointer;min-height:40px}
+.disclosure .chev{transition:transform .2s;color:var(--muted)}
+.disclosure[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.inputs{display:grid;grid-template-columns:repeat(3,minmax(0,220px));gap:14px;margin-top:16px}
+.toolbar{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+textarea#csvBox{width:100%;padding:12px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:96px;resize:vertical}
+.skipnote{font-size:13px;color:var(--red);margin-top:10px;display:none}
+.subhead{font-size:13px;font-weight:650;margin:22px 0 8px;color:var(--text-2)}
+
+/* ---------- starting point ---------- */
+.start-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.start-head h2{margin:0}
+.hint{font-size:12px;font-weight:650;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.start .inputs{margin-top:0}
+.start.attention{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-soft),var(--shadow)}
+.money{position:relative}
+.money span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted);pointer-events:none}
+.money input{padding-left:42px!important;font-variant-numeric:tabular-nums}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+/* ---------- header actions, banner, import status ---------- */
+.actions{display:flex;gap:8px}
+.btn.danger{color:var(--red)}
+.banner,.status{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--card);box-shadow:var(--shadow)}
+.banner{background:var(--accent-soft);border-color:transparent}
+.banner-icon,.status-icon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--card);color:var(--accent)}
+.banner-icon svg.i,.status-icon svg.i{width:18px;height:18px}
+.banner-text{flex:1;min-width:0;display:flex;flex-direction:column;font-size:14px;color:var(--text-2)}
+.banner-text strong{color:var(--text);font-size:14px}
+.banner-actions{display:flex;gap:8px;flex-wrap:wrap}
+.status-body{flex:1;min-width:0;font-size:14px}
+.status-text{color:var(--text-2);margin-top:2px}
+.status-text .chip{display:inline-flex;align-items:center;gap:6px;margin:6px 6px 0 0;padding:3px 10px;border-radius:999px;background:var(--card-2);border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2)}
+.status-text .chip b{color:var(--text)}
+.status.ok .status-icon{background:var(--green-bg);color:var(--green)}
+.status.err .status-icon{background:var(--red-bg);color:var(--red)}
+[hidden]{display:none!important}
+
+/* ---------- import ---------- */
+.dropzone{display:flex;align-items:center;gap:14px;padding:18px;border:1.5px dashed var(--border-strong);border-radius:12px;background:var(--card-2);cursor:pointer;transition:border-color .15s,background .15s}
+.dropzone:hover,.dropzone.over{border-color:var(--accent);background:var(--accent-soft)}
+.dropzone .dz-icon{width:28px;height:28px;color:var(--accent);stroke-width:1.75}
+.dropzone strong{font-size:14px}
+.dz-sub{font-size:13px;color:var(--muted)}
+.import-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.import-label{font-size:12px;font-weight:600;color:var(--muted)}
+details.paste{margin-top:18px}
+details.paste summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--text-2);padding:6px 0}
+details.paste textarea{margin-top:8px}
+
+#clipboardBox{display:none;margin-top:12px}
+#clipboardBox textarea{width:100%;min-height:90px;padding:10px;font-size:13px}
+.foot{display:flex;flex-direction:column;gap:4px;margin-top:28px;font-size:13px}
+#selfTest{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+#selfTest.pass{color:var(--green)}
+#selfTest.fail{color:var(--red);white-space:pre-wrap}
+#footnote{color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:20px 0}
+
+/* ---------- responsive ---------- */
+/* ---------- layout v2: the chart is the hero ---------- */
+.wrap{display:flex;flex-direction:column}
+.wrap > *{margin-top:16px;min-width:0}
+.duo > *{min-width:0}
+.wrap > header{margin-top:0}
+section{margin-top:0}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.summary{padding:16px 20px;align-items:center}
+.summary .line{margin:0;font-size:14px}
+.summary .line:first-child{font-size:16px;margin-bottom:2px}
+.summary .lines-rest{color:var(--text-2);font-size:14px}
+.summary .note{margin-top:4px}
+.kpi{padding:16px 20px}
+.kpi .big{font-size:28px;margin:6px 0 4px}
+.chartcard{padding-bottom:18px}
+#chartBox{height:360px}
+.startbar{margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--card-2);border:1px solid var(--border)}
+.startbar .start-head{margin-bottom:10px}
+.start-title{font-size:13px;font-weight:650;color:var(--text-2)}
+.startbar .inputs{margin-top:0}
+.startbar.attention{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.warnwrap:empty{display:none}
+.warnwrap .warning:first-child{margin-top:12px}
+.duo{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start}
+.whatif-intro{margin:-6px 0 14px;font-size:13px;color:var(--muted)}
+.whatifcard .whatif{display:grid;grid-template-columns:1fr;gap:12px}
+.whatifcard .whatif .field.inv{grid-column:auto}
+.wi-btns{display:flex;gap:8px}
+.wi-btns .btn{flex:1}
+@media (max-width:980px){ .duo{grid-template-columns:1fr} }
+@media (max-width:760px){
+  .wrap > *{order:10}
+  .wrap > header{order:1} #demoBanner{order:2} #importStatus{order:3} #summarySection{order:4}
+  #chartCard{order:5} #kpiCards{order:6} .duo{order:7}
+  .wrap > footer{order:20}
+  #chartBox{height:280px}
+  .summary{padding:14px 16px}
+  .banner #demoText{display:none}
+  .banner{gap:10px;padding:12px 14px}
+  .banner-icon{display:none}
+  .startbar{padding:12px}
+  .subtitle{font-size:13px}
+  .summary .badge{display:none}
+  .summary .note{display:none}
+  .summary .line:first-child{font-size:15px}
+  .summary .line{font-size:13px}
+  .chart-head{flex-direction:column;align-items:stretch;gap:8px;margin-bottom:8px}
+  .chart-head h2{margin:0}
+  .chart-head > *{min-width:0}
+  .chart-head .legend{align-self:stretch;width:calc(100% + 32px);max-width:none}
+  .legend{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:2px 16px;min-width:0}
+  .legend::-webkit-scrollbar{display:none}
+  .legend button{flex:none;font-size:12px;min-height:30px;padding:0 10px 0 8px}
+  .legend svg{width:20px}
+}
+@media (max-width:760px){ .cards{grid-template-columns:repeat(2,minmax(0,1fr))} .kpi .big{font-size:22px} .kpi .sub{font-size:12px} .kpi{padding:14px} }
+
+@media (max-width:900px){ .cards{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:760px){
+  .wrap{padding:18px 14px 48px}
+  .card{padding:18px 16px}
+  .topbar{align-items:flex-start}
+  .controls{width:100%;justify-content:space-between}
+  .whatif{grid-template-columns:1fr 1fr}
+  .whatif .field.inv{grid-column:1 / -1}
+  #chartBox{height:270px}
+  .kpi .big{font-size:26px}
+  .summary .line:first-child{font-size:16px}
+  .summary .line{font-size:14px}
+  .chase-item{flex-direction:column;align-items:stretch;gap:10px}
+  .chase-item .btn{align-self:flex-start}
+  .inputs{grid-template-columns:1fr 1fr}
+  .start .field:last-child{grid-column:1 / -1}
+  .banner,.status{flex-wrap:wrap}
+  .banner-actions{width:100%}
+  .actions{order:3;width:100%}
+  .actions .btn{flex:1}
+}
+@media (max-width:420px){
+  .btn-label-hide{display:none}
+  .banner-actions .btn{flex:1}
+}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="ic-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="ic-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></symbol>
+  <symbol id="ic-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="ic-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="ic-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="ic-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="ic-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+  <symbol id="ic-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="ic-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/></symbol>
+  <symbol id="ic-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></symbol>
+  <symbol id="ic-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="ic-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></symbol>
+</svg>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 16l5-5 4 4 7-7"/><path d="M15 8h5v5"/></svg></div>
+      <div>
+        <h1 id="appTitle">CashSight</h1>
+        <p class="subtitle" id="appSub"></p>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="actions">
+        <button id="btnTemplate" class="btn sm" type="button"><svg class="i"><use href="#ic-download"/></svg><span id="btnTemplateLbl"></span></button>
+        <button id="btnUpload" class="btn sm primary" type="button"><svg class="i"><use href="#ic-upload"/></svg><span id="btnUploadLbl"></span></button>
+        <input type="file" id="fileIn" accept=".xlsx,.xls,.csv,text/csv" hidden>
+      </div>
+      <div class="seg" role="group" id="themeGroup">
+        <button id="btnLight" type="button"><svg class="i"><use href="#ic-sun"/></svg></button>
+        <button id="btnDark" type="button"><svg class="i"><use href="#ic-moon"/></svg></button>
+      </div>
+      <div class="seg" role="group" id="langGroup">
+        <button id="btnEN" type="button">EN</button>
+        <button id="btnBM" type="button">BM</button>
+      </div>
+    </div>
+  </header>
+
+  <section id="demoBanner" class="banner" hidden>
+    <div class="banner-icon" aria-hidden="true"><svg class="i"><use href="#ic-info"/></svg></div>
+    <div class="banner-text"><strong id="demoTitle"></strong><span id="demoText"></span></div>
+    <div class="banner-actions">
+      <button id="btnBannerTemplate" class="btn sm" type="button"><svg class="i"><use href="#ic-download"/></svg><span id="btnBannerTemplateLbl"></span></button>
+      <button id="btnBannerUpload" class="btn sm primary" type="button"><svg class="i"><use href="#ic-upload"/></svg><span id="btnBannerUploadLbl"></span></button>
+    </div>
+  </section>
+
+  <section id="importStatus" class="status" hidden role="status" aria-live="polite">
+    <div class="status-icon" id="statusIcon" aria-hidden="true"></div>
+    <div class="status-body"><strong id="statusTitle"></strong><div id="statusText" class="status-text"></div></div>
+    <button id="btnStatusClose" class="btn icon ghost" type="button"><svg class="i"><use href="#ic-x"/></svg></button>
+  </section>
+
+  <section id="summarySection">
+    <div class="card summary" id="aiSummaryCard">
+      <div class="badge" id="sumBadge" aria-hidden="true"></div>
+      <div id="aiSummary"></div>
+    </div>
+  </section>
+
+  <section class="cards" id="kpiCards">
+    <div class="card kpi"><div class="label" id="lblCard1"></div><div class="big num" id="card1"></div><div class="sub" id="card1sub"></div></div>
+    <div class="card kpi"><div class="label" id="lblCard2"></div><div class="big num" id="card2"></div><div class="sub" id="card2sub"></div></div>
+    <div class="card kpi"><div class="label" id="lblCard3"></div><div class="big num" id="card3"></div><div class="sub" id="card3sub"></div></div>
+    <div class="card kpi"><div class="label" id="lblCard4"></div><div class="big num" id="card4"></div><div class="sub" id="card4sub"></div></div>
+  </section>
+
+  <section class="card chartcard" id="chartCard">
+    <div class="chart-head">
+      <h2 id="lblChart"></h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div id="chartBox"><canvas id="chart" role="img"></canvas></div>
+    <div class="muted" id="chartFallback" style="display:none;font-size:13px"></div>
+    <div class="startbar" id="startCard">
+      <div class="start-head"><span class="start-title" id="lblStart"></span><span class="hint" id="startHint" hidden></span></div>
+      <div class="inputs">
+        <div class="field"><label for="inpBalance" id="lblBalance"></label><div class="money"><span>RM</span><input id="inpBalance" type="text" inputmode="decimal" autocomplete="off" value="30,000"></div></div>
+        <div class="field"><label for="inpBuffer" id="lblBuffer"></label><div class="money"><span>RM</span><input id="inpBuffer" type="text" inputmode="decimal" autocomplete="off" value="5,000"></div></div>
+        <div class="field"><label for="inpToday" id="lblToday"></label><input id="inpToday" type="date" value="2026-11-17"></div>
+      </div>
+    </div>
+    <div class="warnwrap" id="warningsCard"><span class="sr-only" id="lblWarnings"></span><div id="warnings"></div></div>
+  </section>
+
+  <div class="duo">
+    <section class="card">
+      <h2 id="lblChase"></h2>
+      <div id="chaseList"></div>
+      <div id="clipboardBox"><textarea id="clipboardText" readonly></textarea></div>
+    </section>
+
+    <section class="card whatifcard">
+      <div class="whatif-head"><h2 id="lblWhatif"></h2><span class="whatif-tag" id="whatifTag"></span></div>
+      <p class="whatif-intro" id="wiIntro"></p>
+      <div class="whatif">
+        <div class="field inv"><label for="wiSelect" id="lblWiInvoice"></label><select id="wiSelect"></select></div>
+        <div class="field"><label for="wiDate" id="lblWiDate"></label><input id="wiDate" type="date"></div>
+        <div class="wi-btns"><button id="btnWiApply" class="btn primary"></button><button id="btnWiReset" class="btn"></button></div>
+      </div>
+      <div class="preview" id="wiPreview" aria-live="polite"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2 id="lblWeekTable"></h2>
+    <div class="tablebox"><table><thead><tr id="weekHead"></tr></thead><tbody id="weekBody"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2 id="lblHabits"></h2>
+    <div class="tablebox"><table><thead><tr id="habitHead"></tr></thead><tbody id="habitBody"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <button id="dataToggle" class="disclosure" aria-expanded="false" aria-controls="dataPanel"><span id="dataToggleLbl"></span><svg class="i chev"><use href="#ic-chev"/></svg></button>
+    <div id="dataPanel" style="display:none">
+      <div class="subhead" id="lblImport"></div>
+      <div class="dropzone" id="dropzone" tabindex="0" role="button">
+        <svg class="i dz-icon" aria-hidden="true"><use href="#ic-file"/></svg>
+        <div><strong id="dzTitle"></strong><div class="dz-sub" id="dzSub"></div></div>
+      </div>
+      <div class="import-row">
+        <span class="import-label" id="lblMode"></span>
+        <div class="seg" role="group" id="modeGroup">
+          <button id="btnModeAdd" type="button"></button>
+          <button id="btnModeReplace" type="button"></button>
+        </div>
+        <button id="btnTemplate2" class="btn sm ghost" type="button"><svg class="i"><use href="#ic-download"/></svg><span id="btnTemplate2Lbl"></span></button>
+        <button id="btnTemplateCsv" class="btn sm ghost" type="button"><span id="btnTemplateCsvLbl"></span></button>
+      </div>
+      <div class="skipnote" id="skipNote" role="status"></div>
+
+      <div class="subhead" id="lblTx"></div>
+      <div class="tablebox"><table id="txTable"><thead><tr id="txHead"></tr></thead><tbody id="txBody"></tbody></table></div>
+      <div class="toolbar">
+        <button id="btnAddRow" class="btn sm" type="button"><svg class="i"><use href="#ic-plus"/></svg><span id="btnAddRowLbl"></span></button>
+        <button id="btnDemo" class="btn sm ghost" type="button"><svg class="i"><use href="#ic-reset"/></svg><span id="btnDemoLbl"></span></button>
+        <button id="btnClear" class="btn sm ghost danger" type="button"><svg class="i"><use href="#ic-trash"/></svg><span id="btnClearLbl"></span></button>
+      </div>
+
+      <details class="paste">
+        <summary id="lblPaste"></summary>
+        <textarea id="csvBox" rows="4" spellcheck="false" placeholder="date,description,amount,type,party,due,paid"></textarea>
+        <div class="toolbar"><button id="btnImport" class="btn sm" type="button"><svg class="i"><use href="#ic-upload"/></svg><span id="btnImportLbl"></span></button></div>
+      </details>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div id="selfTest"></div>
+    <div id="footnote"></div>
+  </footer>
+</div>
+
+<script id="engine-script">
+/* ============================================================
+   ENGINE — pure functions, no DOM. All maths in UTC.
+   ============================================================ */
+
+function utcDate(s){ return new Date(s + "T00:00:00Z"); }
+function isoOf(d){ return d.toISOString().slice(0,10); }
+function dayDiff(a, b){ return Math.round((utcDate(a) - utcDate(b)) / 86400000); }
+function addDays(s, n){ return isoOf(new Date(utcDate(s).getTime() + n * 86400000)); }
+
+function fmtMoney(n){
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(Math.round(n));
+  return sign + "RM " + abs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function fmtDateShort(s){
+  const d = utcDate(s);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return d.getUTCDate() + " " + months[d.getUTCMonth()];
+}
+function esc(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function isValidDateStr(s){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = utcDate(s);
+  return !isNaN(d.getTime()) && isoOf(d) === s;
+}
+
+/* Split one CSV line into fields, honouring quotes: commas inside quotes,
+   doubled quotes "" inside quotes, then trim each field. */
+function splitCSVLine(line){
+  const fields = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++){
+    const ch = line[i];
+    if (inQuotes){
+      if (ch === '"'){
+        if (line[i + 1] === '"'){ cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ","){ fields.push(cur); cur = ""; }
+      else cur += ch;
+    }
+  }
+  fields.push(cur);
+  return fields.map(f => f.trim());
+}
+
+/* Amount strings: strip RM, spaces, thousands commas. Returns null if not a valid positive number. */
+function parseAmount(raw){
+  let s = String(raw).replace(/rm/gi, "").replace(/\s/g, "").replace(/,(?=\d{3}(\D|$))/g, "");
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  if (!isFinite(n) || n <= 0) return null;
+  return Math.abs(n);
+}
+
+/* Dates: YYYY-MM-DD or DD/MM/YYYY (Malaysian order). Returns ISO or null. */
+function parseDateAny(raw){
+  const s = String(raw).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m){
+    const iso = s;
+    const d = utcDate(iso);
+    if (isNaN(d.getTime()) || isoOf(d) !== iso) return null;
+    return iso;
+  }
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m){
+    const dd = m[1].padStart(2, "0"), mm = m[2].padStart(2, "0"), yyyy = m[3];
+    const iso = yyyy + "-" + mm + "-" + dd;
+    const d = utcDate(iso);
+    if (isNaN(d.getTime()) || isoOf(d) !== iso) return null;
+    return iso;
+  }
+  return null;
+}
+
+/* Parse CSV text -> { rows, skipped, skipReasons: [{line, reason}] } */
+let csvRowSeq = 0;
+function parseCSV(text){
+  const rows = [];
+  const skipReasons = [];
+  const lines = text.split(/\r?\n/);
+  let start = 1;
+  if (lines.length && splitCSVLine(lines[0]).join("|").toLowerCase() !== "date|description|amount|type|party|due|paid") start = 0;
+  for (let i = start; i < lines.length; i++){
+    const raw = lines[i];
+    if (!raw.trim()) continue;
+    const lineNo = i + 1;
+    const c = splitCSVLine(raw);
+    const skip = (key, v) => skipReasons.push({ line: lineNo, key, v: v === undefined ? "" : v });
+    if (c.length !== 7){ skip("skipWrongCols", String(c.length)); continue; }
+    const [date, description, amountS, typeRaw, party, dueRaw, paidRaw] = c;
+    if (!description){ skip("skipNoDesc"); continue; }
+    if (!party){ skip("skipNoParty"); continue; }
+    const amount = parseAmount(amountS);
+    if (amount === null){ skip("skipBadAmount", amountS); continue; }
+    const type = typeRaw.toLowerCase();
+    if (type !== "in" && type !== "out"){ skip("skipBadType", typeRaw); continue; }
+    const due = parseDateAny(dueRaw);
+    if (!due){ skip("skipBadDue", dueRaw); continue; }
+    let paid = "";
+    if (paidRaw !== ""){
+      paid = parseDateAny(paidRaw);
+      if (!paid){ skip("skipBadPaid", paidRaw); continue; }
+    }
+    rows.push({ _id: "csv" + (csvRowSeq++), date, description, amount, type, party, due, paid });
+  }
+  return { rows, skipped: skipReasons.length, skipReasons };
+}
+
+/* Customer habits: averages from paid invoices */
+function computeHabits(rows){
+  const overall = { sum: 0, count: 0 };
+  const byCustomer = {};
+  for (const r of rows){
+    if (r.type !== "in" || r.paid === "") continue;
+    const late = Math.max(0, dayDiff(r.paid, r.due));
+    overall.sum += late; overall.count++;
+    if (!byCustomer[r.party]) byCustomer[r.party] = { sum: 0, count: 0 };
+    byCustomer[r.party].sum += late; byCustomer[r.party].count++;
+  }
+  const overallAvg = overall.count ? Math.round(overall.sum / overall.count) : 0;
+  const habits = {};
+  for (const party in byCustomer){
+    const h = byCustomer[party];
+    habits[party] = {
+      paidCount: h.count,
+      avgDays: Math.round(h.sum / h.count),
+      label: "history"
+    };
+  }
+  return { habits, overallAvg };
+}
+
+function customerAvg(habits, overallAvg, party){
+  const h = habits[party];
+  if (h) return { avg: h.avgDays, noHistory: false };
+  return { avg: overallAvg, noHistory: true };
+}
+
+/* Monday of the week containing a date (UTC) */
+function mondayOf(s){
+  const d = utcDate(s);
+  const offset = (d.getUTCDay() + 6) % 7;
+  return isoOf(new Date(d.getTime() - offset * 86400000));
+}
+
+/* Main computation */
+function computeAll(rows, startBalance, buffer, today, whatIf){
+  const open = [];
+  const history = [];
+  for (const r of rows){
+    if (r.paid === "") open.push(r); else history.push(r);
+  }
+  const { habits, overallAvg } = computeHabits(rows);
+
+  /* realistic arrivals */
+  const arrivals = {};       // row key -> date
+  const overdue = {};        // row key -> bool
+  for (const r of open){
+    const key = r._id;
+    if (r.type === "in"){
+      const { avg } = customerAvg(habits, overallAvg, r.party);
+      let arrival = addDays(r.due, avg);
+      if (arrival < today) arrival = today;
+      arrivals[key] = arrival;
+      overdue[key] = r.due < today;
+    } else {
+      let arrival = r.due;
+      if (arrival < today) arrival = today;
+      arrivals[key] = arrival;
+      overdue[key] = r.due < today;
+    }
+  }
+
+  /* what-if override (in only) */
+  let whatIfRow = null;
+  if (whatIf && whatIf.rowId){
+    const r = open.find(x => x._id === whatIf.rowId);
+    if (r && r.type === "in"){
+      whatIfRow = r;
+      let arrival = whatIf.date;
+      if (arrival < today) arrival = today;
+      arrivals[r._id] = arrival;
+      overdue[r._id] = r.due < today;
+    }
+  }
+
+  /* total owed */
+  let totalOwed = 0;
+  for (const r of open) if (r.type === "in") totalOwed += r.amount;
+
+  /* weeks */
+  const week1Start = mondayOf(today);
+  const weekStarts = [];
+  for (let i = 0; i < 8; i++) weekStarts.push(addDays(week1Start, i * 7));
+  function weekIndexOf(date){
+    const idx = Math.floor(dayDiff(date, week1Start) / 7);
+    return idx;
+  }
+
+  /* per-week buckets, realistic and due-date */
+  function buildSeries(useDueDates){
+    const weeks = [];
+    for (let i = 0; i < 8; i++){
+      weeks.push({ start: weekStarts[i], in: 0, out: 0, items: [] });
+    }
+    for (const r of open){
+      let land;
+      if (r.type === "in"){
+        land = useDueDates ? (r.due < today ? today : r.due) : arrivals[r._id];
+      } else {
+        land = useDueDates ? (r.due < today ? today : r.due) : arrivals[r._id];
+      }
+      const idx = weekIndexOf(land);
+      if (idx >= 0 && idx < 8){
+        if (r.type === "in") weeks[idx].in += r.amount;
+        else weeks[idx].out += r.amount;
+        weeks[idx].items.push(r);
+      }
+    }
+    let bal = startBalance;
+    for (const w of weeks){
+      w.net = w.in - w.out;
+      bal += w.net;
+      w.closing = bal;
+    }
+    return weeks;
+  }
+
+  const realisticWeeks = buildSeries(false);
+  const dueWeeks = buildSeries(true);
+
+  /* short weeks */
+  const shortWeeks = [];
+  realisticWeeks.forEach((w, i) => { if (w.closing < buffer) shortWeeks.push({ index: i, week: w }); });
+  const firstShort = shortWeeks.length ? shortWeeks[0] : null;
+
+  /* lowest balance */
+  let lowestIdx = 0;
+  realisticWeeks.forEach((w, i) => { if (w.closing < realisticWeeks[lowestIdx].closing) lowestIdx = i; });
+  let dueLowestIdx = 0;
+  dueWeeks.forEach((w, i) => { if (w.closing < dueWeeks[dueLowestIdx].closing) dueLowestIdx = i; });
+
+  /* chase list */
+  const openIn = open.filter(r => r.type === "in");
+  let chase = [];
+  if (firstShort){
+    const sundayEnd = addDays(firstShort.week.start, 6);
+    const late = openIn.filter(r => arrivals[r._id] > sundayEnd)
+      .sort((a, b) => b.amount - a.amount)
+      .map(r => ({ row: r, arrival: arrivals[r._id], tooLate: true }));
+    const rest = openIn.filter(r => arrivals[r._id] <= sundayEnd)
+      .sort((a, b) => b.amount - a.amount)
+      .map(r => ({ row: r, arrival: arrivals[r._id], tooLate: false }));
+    chase = late.concat(rest);
+  } else {
+    chase = openIn.slice().sort((a, b) => b.amount - a.amount)
+      .map(r => ({ row: r, arrival: arrivals[r._id], tooLate: false }));
+  }
+
+  /* slowest payer */
+  let slowest = null;
+  for (const party in habits){
+    if (!slowest || habits[party].avgDays > slowest.avgDays){
+      slowest = { party, avgDays: habits[party].avgDays };
+    }
+  }
+
+  return {
+    open, openIn, habits, overallAvg, arrivals, overdue,
+    weekStarts, realisticWeeks, dueWeeks,
+    shortWeeks, firstShort,
+    lowestIdx, dueLowestIdx,
+    totalOwed, chase, slowest, whatIfRow
+  };
+}
+
+/* Templated AI summary (3 lines) */
+function buildTemplatedSummary(res, balance, buffer, today, lang){
+  const t = TEXT[lang];
+  const rw = res.realisticWeeks[res.lowestIdx];
+  const dw = res.dueWeeks[res.dueLowestIdx];
+  const line1 = t.sum1.replace("{real}", fmtMoney(rw.closing))
+    .replace("{week}", fmtDateShort(rw.start))
+    .replace("{due}", fmtMoney(dw.closing));
+  let line2;
+  if (res.shortWeeks.length === 0) line2 = t.sum2none;
+  else if (res.shortWeeks.length === 1) line2 = t.weekBelow;
+  else line2 = t.weeksBelow.replace("{n}", String(res.shortWeeks.length));
+  let line3 = null;
+  if (res.chase.length){
+    const top = res.chase[0];
+    const c = customerAvg(res.habits, res.overallAvg, top.row.party);
+    line3 = t.sum3.replace("{party}", top.row.party)
+      .replace("{amount}", fmtMoney(top.row.amount))
+      .replace("{avg}", String(c.avg));
+  }
+  return [line1, line2, line3].filter(Boolean);
+}
+
+const DEMO_CSV = `date,description,amount,type,party,due,paid
+2026-07-06,Progress claim 1 - shoplot renovation,35000,in,Syarikat Maju Bina,2026-08-05,2026-09-04
+2026-08-10,Progress claim 2 - shoplot renovation,42000,in,Syarikat Maju Bina,2026-09-09,2026-10-14
+2026-09-14,Progress claim 3 - shoplot renovation,28000,in,Syarikat Maju Bina,2026-10-14,2026-11-14
+2026-07-29,Tiling works - Block A,16000,in,Teguh Jaya Developments,2026-08-28,2026-08-28
+2026-08-26,Tiling works - Block B,19000,in,Teguh Jaya Developments,2026-09-25,2026-09-23
+2026-09-30,Plaster works - Block B,17500,in,Teguh Jaya Developments,2026-10-30,2026-10-30
+2026-08-03,Showroom partition,7000,in,Kedai Perabot Sinar,2026-08-17,2026-08-17
+2026-09-07,Showroom ceiling repair,8500,in,Kedai Perabot Sinar,2026-09-21,2026-10-03
+2026-10-05,Showroom lighting points,5500,in,Kedai Perabot Sinar,2026-10-19,2026-10-19
+2026-10-21,Progress claim 4 - shoplot renovation,48000,in,Syarikat Maju Bina,2026-11-20,
+2026-11-04,Progress claim 5 - shoplot renovation,22000,in,Syarikat Maju Bina,2026-12-04,
+2026-10-28,Plaster works - Block C,18000,in,Teguh Jaya Developments,2026-11-27,
+2026-11-18,Painting works - Block C,15000,in,Teguh Jaya Developments,2026-12-18,
+2026-10-27,Storeroom shelving,6000,in,Kedai Perabot Sinar,2026-11-10,
+2026-11-10,Showroom floor repair,9500,in,Kedai Perabot Sinar,2026-11-24,
+2026-11-16,Cafe counter and wall finishes,12000,in,Harmoni Cafe,2026-11-30,
+2026-11-20,Payroll,21000,out,Workers,2026-11-20,
+2026-12-04,Payroll,21000,out,Workers,2026-12-04,
+2026-12-18,Payroll,21000,out,Workers,2026-12-18,
+2027-01-01,Payroll,21000,out,Workers,2027-01-01,
+2026-12-01,Store and office rent,3500,out,Tuan Rumah Encik Rahman,2026-12-01,
+2027-01-01,Store and office rent,3500,out,Tuan Rumah Encik Rahman,2027-01-01,
+2026-11-16,Steel and hardware,14000,out,Kedai Besi Hock Seng,2026-12-16,
+2026-11-23,Tiles and adhesive,6000,out,Kedai Besi Hock Seng,2026-12-23,
+2026-11-10,Cement and sand,8500,out,Simen Pasir Bersatu,2026-12-10,
+2026-11-28,Van loan instalment,2800,out,Bank Rakyat Niaga,2026-11-28,
+2026-12-28,Van loan instalment,2800,out,Bank Rakyat Niaga,2026-12-28,
+2026-12-08,Van service and tyres,1200,out,Bengkel Ah Seng,2026-12-08,
+2026-12-15,EPF and SOCSO,3200,out,KWSP dan PERKESO,2026-12-15,`;
+
+/* Self-test on demo data */
+function runSelfTest(){
+  const { rows } = parseCSV(DEMO_CSV);
+  const res = computeAll(rows, 30000, 5000, "2026-11-17", null);
+  const checks = [];
+  function check(name, expected, actual){
+    checks.push({ name, expected, actual, pass: String(expected) === String(actual) });
+  }
+  const avgOf = p => res.habits[p] ? res.habits[p].avgDays : null;
+  check("1 Maju Bina avg", 32, avgOf("Syarikat Maju Bina"));
+  check("2 Teguh Jaya avg", 0, avgOf("Teguh Jaya Developments"));
+  check("3 Sinar avg", 4, avgOf("Kedai Perabot Sinar"));
+  check("4 overall avg", 12, res.overallAvg);
+  const harmoni = res.openIn.find(r => r.party === "Harmoni Cafe");
+  const hc = customerAvg(res.habits, res.overallAvg, "Harmoni Cafe");
+  check("4b Harmoni no-history avg/label", "12,true", hc.avg + "," + hc.noHistory);
+  const maju48 = res.openIn.find(r => r.party === "Syarikat Maju Bina" && r.amount === 48000);
+  check("5 Maju 48000 arrival", "2026-12-22", res.arrivals[maju48._id]);
+  const harm12 = res.openIn.find(r => r.party === "Harmoni Cafe" && r.amount === 12000);
+  check("6 Harmoni 12000 arrival", "2026-12-12", res.arrivals[harm12._id]);
+  check("7 week1 start", "2026-11-16", res.weekStarts[0]);
+  check("7b week8 start", "2027-01-04", res.weekStarts[7]);
+  check("8 realistic closings", "15000,39700,15200,17500,-5700,36300,9000,31000",
+    res.realisticWeeks.map(w => w.closing).join(","));
+  check("9 due closings", "63000,87700,97200,87500,64300,58300,31000,31000",
+    res.dueWeeks.map(w => w.closing).join(","));
+  check("10 short week count", 1, res.shortWeeks.length);
+  check("10b first short start", "2026-12-14", res.firstShort ? res.firstShort.week.start : "none");
+  check("10c lowest realistic", -5700, res.realisticWeeks[res.lowestIdx].closing);
+  check("11 total owed", 130500, res.totalOwed);
+  const top = res.chase[0];
+  check("11b top chase", "Syarikat Maju Bina,48000", top ? top.row.party + "," + top.row.amount : "none");
+  const wiRes = computeAll(rows, 30000, 5000, "2026-11-17", { rowId: maju48._id, date: "2026-11-20" });
+  check("12 what-if closings", "63000,87700,63200,65500,42300,36300,9000,31000",
+    wiRes.realisticWeeks.map(w => w.closing).join(","));
+  check("12b what-if short weeks", 0, wiRes.shortWeeks.length);
+  return checks;
+}
+</script>
+
+<script>
+/* ============================================================
+   TEXT DICTIONARY
+   ============================================================ */
+const TEXT = {
+  en: {
+    title: "CashSight", subtitle: "See the week you can't pay your crew, before it comes.",
+    balance: "Starting bank balance", buffer: "Safety buffer", today: "Today",
+    loadDemo: "Load demo data", tx: "Transactions", paste: "Paste CSV", importBtn: "Import",
+    addRow: "Add row", rowSkipped: "1 row skipped", rowsSkipped: "{n} rows skipped",
+    skipLine: "Line {n} skipped: {reason}",
+    skipWrongCols: "wrong column count ({n})", skipNoDesc: "missing description",
+    skipNoParty: "missing party", skipBadAmount: "amount '{v}' is not a number greater than 0",
+    skipBadType: "type '{v}' is not in/out", skipBadDue: "bad due date '{v}'",
+    skipBadPaid: "bad paid date '{v}'",
+    colDate: "Date", colDesc: "Description", colAmount: "Amount", colType: "Type",
+    colParty: "Party", colDue: "Due", colPaid: "Paid", colDelete: "",
+    card1: "Lowest balance (realistic)", dueDatesSay: "Due dates say {v}",
+    card1week: "Week of {w}",
+    card2: "Weeks below buffer", card2sub: "below your {buffer} buffer",
+    card3: "Total owed to you", card3sub: "{n} open invoices",
+    card4: "Slowest payer", card4sub: "{party}",
+    card4big: "{d} days",
+    dataSection: "Your data ({n} rows)",
+    footnote: "All figures are computed in code and checked by a built-in self-test. The AI never changes a number.",
+    legendDue: "If you trust due dates", legendBuffer: "Safety buffer",
+    themeLight: "Light", themeDark: "Dark",
+    weekBelow: "1 week below your buffer", weeksBelow: "{n} weeks below your buffer",
+    slowestText: "{party}, {d} days late on average",
+    warnings: "Warnings", noShortWeeks: "No short weeks in the next 8 weeks.",
+    warnFull: "Week of {week}: balance drops to {closing}. You cannot cover {desc} ({amount}, {date}) unless {party} pays {invAmount} (due {due}, expected {arrival}).",
+    warnShort: "Week of {week}: balance drops to {closing}, below your buffer of {buffer}.",
+    chart: "Cash flow, next 8 weeks", weekTable: "Weekly forecast",
+    hWeek: "Week start", hIn: "In", hOut: "Out", hNet: "Net",
+    hCloseReal: "Closing (realistic)", hCloseDue: "Closing (due dates)",
+    whatif: "What-if", wiTag: "What-if active", wiInvoice: "Open invoice", wiDate: "Pay date",
+    wiApply: "Apply", wiReset: "Reset what-if",
+    chase: "Who to chase first", nothingToChase: "Nothing to chase.",
+    tagTooLate: "Arrives too late", tagOverdue: "overdue", noHistory: "no history, using average",
+    copyReminder: "Copy reminder", copied: "Copied",
+    habits: "Customer habits", hCount: "Paid invoices", hAvg: "Average days late", hLabel: "Label",
+    labelHistory: "pays on time or close", labelLate: "pays late",
+    emptyState: "No transactions yet.", chartFail: "Chart.js could not load. The weekly table below still shows the forecast.",
+    sum1: "Lowest balance: {real} in the week of {week}. Due dates alone would show {due}.",
+    sum2none: "No short weeks.",
+    sum3: "Chase first: {party}, {amount}, usually {avg} days late.",
+    aiNote: "Summary is generated from computed numbers.",
+    reminderDuePast: "Hello {party}, hope you are well. A gentle reminder that our invoice for {desc}, {amount}, was due on {due}. We would be grateful if payment could be made by {payBy}. Please let us know if you need the invoice again. Thank you.",
+    reminderDueFuture: "Hello {party}, hope you are well. A gentle reminder that our invoice for {desc}, {amount}, is due on {due}. We would be grateful if it could be paid on time.",
+    testPass: "Checks passed {n}/{n}", testFail: "Self-test failed:"
+  },
+  bm: {
+    title: "CashSight", subtitle: "Lihat minggu anda tak cukup duit untuk gaji, sebelum ia tiba.",
+    balance: "Baki bank permulaan", buffer: "Penampan keselamatan", today: "Hari ini",
+    loadDemo: "Muat data demo", tx: "Transaksi", paste: "Tampal CSV", importBtn: "Import",
+    addRow: "Tambah baris", rowSkipped: "1 baris dilangkau", rowsSkipped: "{n} baris dilangkau",
+    skipLine: "Baris {n} dilangkau: {reason}",
+    skipWrongCols: "bilangan lajur salah ({n})", skipNoDesc: "tiada keterangan",
+    skipNoParty: "tiada pihak", skipBadAmount: "amaun '{v}' bukan nombor lebih daripada 0",
+    skipBadType: "jenis '{v}' bukan in/out", skipBadDue: "tarikh akhir tidak sah '{v}'",
+    skipBadPaid: "tarikh bayar tidak sah '{v}'",
+    colDate: "Tarikh", colDesc: "Keterangan", colAmount: "Amaun", colType: "Jenis",
+    colParty: "Pihak", colDue: "Tutup", colPaid: "Dibayar", colDelete: "",
+    card1: "Baki terendah (realistik)", dueDatesSay: "Tarikh tutup kata {v}",
+    card1week: "Minggu {w}",
+    card2: "Minggu bawah penampan", card2sub: "di bawah penampan {buffer} anda",
+    card3: "Jumlah tertunggak kepada anda", card3sub: "{n} invois terbuka",
+    card4: "Pembayar paling lambat", card4sub: "{party}",
+    card4big: "{d} hari",
+    dataSection: "Data anda ({n} baris)",
+    footnote: "Semua angka dikira dalam kod dan disemak oleh ujian kendiri terbina dalam. AI tidak pernah mengubah sebarang angka.",
+    legendDue: "Jika percaya tarikh akhir", legendBuffer: "Penampan keselamatan",
+    themeLight: "Cerah", themeDark: "Gelap",
+    weekBelow: "1 minggu di bawah penampan anda", weeksBelow: "{n} minggu di bawah penampan anda",
+    slowestText: "{party}, purata {d} hari lewat",
+    warnings: "Amaran", noShortWeeks: "Tiada minggu kekurangan dalam 8 minggu akan datang.",
+    warnFull: "Minggu {week}: baki jatuh ke {closing}. Anda tidak dapat menampung {desc} ({amount}, {date}) melainkan {party} membayar {invAmount} (perlu dibayar {due}, dijangka {arrival}).",
+    warnShort: "Minggu {week}: baki jatuh ke {closing}, di bawah penampan {buffer}.",
+    chart: "Aliran tunai, 8 minggu akan datang", weekTable: "Jangkaan mingguan",
+    hWeek: "Minggu bermula", hIn: "Masuk", hOut: "Keluar", hNet: "Bersih",
+    hCloseReal: "Baki (realistik)", hCloseDue: "Baki (tarikh tutup)",
+    whatif: "Bagaimana-jika", wiTag: "Bagaimana-jika aktif", wiInvoice: "Invois terbuka", wiDate: "Tarikh bayar",
+    wiApply: "Guna", wiReset: "Set semula",
+    chase: "Siapa untuk dikejar dahulu", nothingToChase: "Tiada apa untuk dikejar.",
+    tagTooLate: "Tiba terlalu lewat", tagOverdue: "tertunggak", noHistory: "tiada rekod, guna purata",
+    copyReminder: "Salin peringatan", copied: "Disalin",
+    habits: "Tabiat pelanggan", hCount: "Invois dibayar", hAvg: "Purata hari lewat", hLabel: "Label",
+    labelHistory: "membayar tepat atau hampir", labelLate: "membayar lewat",
+    emptyState: "Tiada transaksi lagi.", chartFail: "Chart.js tidak dapat dimuatkan. Jadual mingguan di bawah tetap menunjukkan jangkaan.",
+    sum1: "Baki terendah: {real} pada minggu {week}. Tarikh tutup sahaja akan menunjukkan {due}.",
+    sum2none: "Tiada minggu kekurangan.",
+    sum3: "Kejar dahulu: {party}, {amount}, biasanya {avg} hari lewat.",
+    aiNote: "Ringkasan dijana daripada angka yang telah dikira.",
+    reminderDuePastBM: "Salam {party}, semoga sihat. Sekadar peringatan mesra, invois kami untuk {desc} berjumlah {amount} perlu dibayar pada {due}. Kami amat menghargai jika bayaran dapat dibuat sebelum {payBy}. Sila maklumkan jika perlukan salinan invois. Terima kasih.",
+    reminderDueFutureBM: "Salam {party}, semoga sihat. Sekadar peringatan mesra, invois kami untuk {desc} berjumlah {amount} perlu dibayar pada {due}. Kami amat menghargai jika bayaran dapat dibuat tepat pada masanya.",
+    testPass: "Semakan lulus {n}/{n}", testFail: "Ujian kendiri gagal:"
+  }
+};
+</script>
+
+<script>
+/* Extra words for the refined controls (both languages). */
+Object.assign(TEXT.en, {
+  legendReal: "Realistic balance", legendIn: "Money in", legendOut: "Money out",
+  themeLightAria: "Light mode", themeDarkAria: "Dark mode", langAria: "Language", themeAria: "Theme",
+  loadDemoShort: "Demo data", deleteRow: "Delete row", expected: "expected", avgLate: "{d} days late on average",
+  dueWord: "due", wiPreview: "If paid on {date}: lowest balance {from} → {to}, {n}.",
+  wiShortN: "{n} weeks short", wiShort1: "1 week short", wiShort0: "no short weeks",
+  wiPick: "Pick an invoice and a pay date to see the effect.", chartAria: "Weekly cash flow chart for the next 8 weeks",
+  dataTitle: "Your data", rowsWord: "{n} rows",
+  template: "Template", uploadFile: "Upload file", templateXlsx: "Excel template", templateCsv: "CSV instead",
+  demoTitle: "You are looking at sample data.", demoText: "Download the template, fill in your invoices and bills, then upload it to see your own weeks.",
+  importTitle: "Import a file", dzTitle: "Drop your filled template here, or click to choose", dzSub: "Excel (.xlsx) or CSV. Same columns as the template.",
+  modeLabel: "When importing", modeAdd: "Add to my data", modeReplace: "Replace my data",
+  clearAll: "Clear all", clearConfirm: "Tap again to clear", pasteTitle: "Or paste CSV text",
+  stImported: "Imported {file}", stNothing: "Nothing new in {file}", stFailed: "Could not read {file}",
+  stAdded: "new", stDup: "already there, skipped", stUpdated: "updated as paid", stBad: "skipped with problems, see below", stEx: "examples ignored",
+  stReplaced: "replaced the sample data", stFailHelp: "Save it as .xlsx or .csv using the template's columns and try again.",
+  xlsxFail: "The Excel reader could not load (no internet?). Use the CSV template instead.",
+  tplSheet: "Cashflow", tplHelpSheet: "How to fill",
+  startTitle: "Starting point", startHint: "Enter your bank balance today", balancePh: "e.g. 25,000",
+  fromLine: "Forecast from {date} with {bal} in the bank",
+  pendingSub: "after you enter your bank balance", pendingWarn: "Enter your bank balance today above, and CashSight will show which weeks run short.",
+  pendingTitle: "Your data is in. One more step.", pendingText: "Enter your bank balance today in Starting point, and the forecast, warnings and chart will fill in.",
+  warnMore: "Show {n} more short weeks", warnLess: "Show only the first",
+  wiIntro: "Pick an invoice and the day it gets paid to see the effect before you chase."
+});
+Object.assign(TEXT.en, { balance: "Bank balance today", buffer: "Safety buffer", today: "Forecast from" });
+Object.assign(TEXT.bm, {
+  legendReal: "Baki realistik", legendIn: "Wang masuk", legendOut: "Wang keluar",
+  themeLightAria: "Mod cerah", themeDarkAria: "Mod gelap", langAria: "Bahasa", themeAria: "Tema",
+  loadDemoShort: "Data demo", deleteRow: "Padam baris", expected: "dijangka", avgLate: "purata {d} hari lewat",
+  dueWord: "perlu dibayar", wiPreview: "Jika dibayar pada {date}: baki terendah {from} → {to}, {n}.",
+  wiShortN: "{n} minggu kekurangan", wiShort1: "1 minggu kekurangan", wiShort0: "tiada minggu kekurangan",
+  wiPick: "Pilih invois dan tarikh bayar untuk melihat kesannya.", chartAria: "Carta aliran tunai mingguan untuk 8 minggu akan datang",
+  dataTitle: "Data anda", rowsWord: "{n} baris",
+  template: "Templat", uploadFile: "Muat naik fail", templateXlsx: "Templat Excel", templateCsv: "Atau CSV",
+  demoTitle: "Anda sedang melihat data contoh.", demoText: "Muat turun templat, isi invois dan bil anda, kemudian muat naik untuk melihat minggu anda sendiri.",
+  importTitle: "Import fail", dzTitle: "Lepaskan templat yang telah diisi di sini, atau klik untuk pilih", dzSub: "Excel (.xlsx) atau CSV. Lajur sama seperti templat.",
+  modeLabel: "Semasa import", modeAdd: "Tambah ke data saya", modeReplace: "Ganti data saya",
+  clearAll: "Kosongkan semua", clearConfirm: "Tekan sekali lagi untuk kosongkan", pasteTitle: "Atau tampal teks CSV",
+  stImported: "{file} diimport", stNothing: "Tiada yang baharu dalam {file}", stFailed: "Tidak dapat membaca {file}",
+  stAdded: "baharu", stDup: "sudah ada, dilangkau", stUpdated: "dikemas kini sebagai dibayar", stBad: "dilangkau kerana bermasalah, lihat di bawah", stEx: "contoh diabaikan",
+  stReplaced: "menggantikan data contoh", stFailHelp: "Simpan sebagai .xlsx atau .csv menggunakan lajur templat dan cuba lagi.",
+  xlsxFail: "Pembaca Excel tidak dapat dimuatkan (tiada internet?). Gunakan templat CSV.",
+  tplSheet: "Cashflow", tplHelpSheet: "Cara mengisi",
+  startTitle: "Titik permulaan", startHint: "Masukkan baki bank anda hari ini", balancePh: "cth. 25,000",
+  fromLine: "Ramalan dari {date} dengan {bal} dalam bank",
+  pendingSub: "selepas anda masukkan baki bank", pendingWarn: "Masukkan baki bank anda hari ini di atas, dan CashSight akan tunjukkan minggu yang tak cukup.",
+  pendingTitle: "Data anda sudah masuk. Satu langkah lagi.", pendingText: "Masukkan baki bank anda hari ini di Titik permulaan, dan ramalan, amaran serta carta akan dipaparkan.",
+  warnMore: "Tunjuk {n} lagi minggu kekurangan", warnLess: "Tunjuk yang pertama sahaja",
+  wiIntro: "Pilih invois dan hari ia dibayar untuk melihat kesannya sebelum anda mengejar."
+});
+Object.assign(TEXT.bm, { balance: "Baki bank hari ini", buffer: "Penampan keselamatan", today: "Ramalan dari" });
+</script>
+
+<script>
+/* ============================================================
+   UI (all numbers come from the engine above; nothing here calculates money)
+   ============================================================ */
+let lang = "en";
+let rows = [];
+let skipReasons = [];
+let whatIf = null;
+let chart = null;
+let rowSeq = 0;
+let isDemo = false;
+let importMode = "add";
+const hidden ={ real: false, due: false, buffer: false, in: false, out: false };
+
+function t(key){ return TEXT[lang][key]; }
+function el(id){ return document.getElementById(id); }
+function icon(id, cls){ return '<svg class="i' + (cls ? " " + cls : "") + '" aria-hidden="true"><use href="#' + id + '"/></svg>'; }
+
+/* Money boxes are plain text (no up/down arrows): "25000", "25,000" and "RM 25,000.50" all read the same. */
+function moneyValue(s){
+  const n = Number(String(s || "").replace(/rm/gi, "").replace(/[\s,]/g, ""));
+  return isFinite(n) ? n : 0;
+}
+function moneyText(n){ const cents = Math.round(n * 100) % 100 !== 0; return n.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 }); }
+function getInputs(){
+  return {
+    balance: moneyValue(el("inpBalance").value),
+    buffer: moneyValue(el("inpBuffer").value),
+    today: isValidDateStr(el("inpToday").value) ? el("inpToday").value : "2026-11-17"
+  };
+}
+
+function loadDemo(){
+  const { rows: parsed } = parseCSV(DEMO_CSV);
+  rows = parsed.map(r => Object.assign({}, r));
+  skipReasons = [];
+  whatIf = null;
+  isDemo = true;
+  hideStatus();
+  el("inpBalance").value = "30,000";
+  el("inpBuffer").value = "5,000";
+  el("inpToday").value = "2026-11-17";
+  renderAll();
+}
+
+function localISO(d){ return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function rowIsValid(r){
+  if (parseAmount(r.amount) === null) return false;
+  if (!r.description || !r.party) return false;
+  const ty = String(r.type).toLowerCase();
+  if (ty !== "in" && ty !== "out") return false;
+  if (!parseDateAny(r.due)) return false;
+  if (r.paid !== "" && !parseDateAny(r.paid)) return false;
+  return true;
+}
+function validRows(){
+  const out = [];
+  for (const r of rows){
+    if (!rowIsValid(r)) continue;
+    out.push({ _id: r._id, date: r.date, description: r.description, amount: parseAmount(r.amount),
+      type: String(r.type).toLowerCase(), party: r.party, due: parseDateAny(r.due),
+      paid: r.paid === "" ? "" : parseDateAny(r.paid) });
+  }
+  return out;
+}
+
+/* ---- transactions table ---- */
+const COLS = ["date","description","amount","type","party","due","paid"];
+function renderTxTable(){
+  el("txHead").innerHTML = ["colDate","colDesc","colAmount","colType","colParty","colDue","colPaid","colDelete"]
+    .map(k => "<th>" + esc(t(k)) + "</th>").join("");
+  const body = el("txBody");
+  if (!rows.length){
+    body.innerHTML = '<tr><td colspan="8" class="empty">' + esc(t("emptyState")) +
+      ' <button class="btn sm primary" type="button" data-demo="1">' + esc(t("loadDemo")) + "</button></td></tr>";
+    return;
+  }
+  body.innerHTML = rows.map((r, i) => "<tr>" + COLS.map(c => {
+    const v = r[c] === undefined ? "" : r[c];
+    if (c === "type"){
+      const ty = String(v).toLowerCase();
+      return '<td><select data-i="' + i + '" data-c="type" aria-label="' + esc(t("colType")) + '">' +
+        '<option value="in"' + (ty === "in" ? " selected" : "") + ">in</option>" +
+        '<option value="out"' + (ty === "out" ? " selected" : "") + ">out</option></select></td>";
+    }
+    return '<td><input class="' + (c === "description" || c === "party" ? "wide" : "") + '" value="' + esc(v) +
+      '" data-i="' + i + '" data-c="' + c + '" aria-label="' + esc(t({date:"colDate",description:"colDesc",amount:"colAmount",party:"colParty",due:"colDue",paid:"colPaid"}[c])) + '"></td>';
+  }).join("") +
+    '<td><button class="btn icon ghost" type="button" data-del="' + i + '" aria-label="' + esc(t("deleteRow")) + '" title="' + esc(t("deleteRow")) + '">' + icon("ic-trash") + "</button></td></tr>"
+  ).join("");
+}
+function onCellEdit(e){
+  const i = e.target.getAttribute("data-i"), c = e.target.getAttribute("data-c");
+  if (i !== null && c){ rows[Number(i)][c] = e.target.value; renderAll({ skipTxTable: true }); }
+}
+el("txBody").addEventListener("input", onCellEdit);
+el("txBody").addEventListener("change", e => { if (e.target.tagName === "SELECT") onCellEdit(e); });
+el("txBody").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.hasAttribute("data-demo")){ loadDemo(); return; }
+  const del = b.getAttribute("data-del");
+  if (del !== null){
+    const removed = rows.splice(Number(del), 1);
+    if (whatIf && removed.some(r => r._id === whatIf.rowId)) whatIf = null;
+    renderAll();
+  }
+});
+
+/* ============================================================
+   TEMPLATE, UPLOAD AND MERGE
+   ============================================================ */
+const TPL_HEAD = ["date","description","amount","type","party","due","paid"];
+const TPL_EXAMPLES = [
+  ["2026-11-03","Example - Progress claim 1","12000","in","Your customer name","2026-12-03",""],
+  ["2026-10-01","Example - Invoice already paid","5000","in","Your customer name","2026-10-31","2026-11-12"],
+  ["2026-11-14","Example - Payroll","8000","out","Workers","2026-11-28",""],
+  ["2026-11-10","Example - Supplier bill","3500","out","Your supplier","2026-12-10",""]
+];
+const TPL_HELP = [
+  ["Column", "What to put", "Apa yang perlu diisi"],
+  ["date", "Date of the invoice or bill (YYYY-MM-DD or DD/MM/YYYY)", "Tarikh invois atau bil"],
+  ["description", "What it is, e.g. Progress claim 3", "Apa ia, cth. Tuntutan kemajuan 3"],
+  ["amount", "Amount in RM, no minus sign (12000 or 12,000.00)", "Amaun dalam RM, tanpa tanda tolak"],
+  ["type", "in = money you receive, out = money you pay", "in = wang diterima, out = wang dibayar"],
+  ["party", "Customer or supplier name, spelt the same every time", "Nama pelanggan atau pembekal, ejaan yang sama setiap kali"],
+  ["due", "Date it should be paid", "Tarikh ia sepatutnya dibayar"],
+  ["paid", "Date it was actually paid. Leave blank if not paid yet", "Tarikh sebenar dibayar. Biarkan kosong jika belum dibayar"],
+  ["", "", ""],
+  ["Tip", "Rows that start with 'Example -' are ignored. Delete them or leave them.", "Baris bermula 'Example -' diabaikan."],
+  ["Tip", "Add new rows to the same file and upload it again: rows already in CashSight are skipped, and invoices you have since marked paid are updated.", "Tambah baris baharu ke fail yang sama dan muat naik semula: baris sedia ada dilangkau, invois yang telah dibayar dikemas kini."],
+  ["Tip", "Paid invoices teach CashSight how late each customer pays. The more history, the better the forecast.", "Invois yang telah dibayar mengajar CashSight berapa lewat setiap pelanggan membayar."]
+];
+const isExampleRow = desc => /^\s*(example|contoh)\s*[-:]/i.test(String(desc || ""));
+
+let xlsxPromise = null;
+function loadXLSX(){
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxPromise) xlsxPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("xlsx"));
+    s.onerror = () => { xlsxPromise = null; reject(new Error("xlsx")); };
+    document.head.appendChild(s);
+  });
+  return xlsxPromise;
+}
+function csvCell(v){ const s = String(v == null ? "" : v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function toCSV(aoa){ return aoa.map(r => r.map(csvCell).join(",")).join("\r\n"); }
+function saveBlob(blob, name){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function downloadCsvTemplate(){
+  saveBlob(new Blob(["﻿" + toCSV([TPL_HEAD].concat(TPL_EXAMPLES))], { type: "text/csv;charset=utf-8" }), "cashsight-template.csv");
+}
+async function downloadTemplate(){
+  try {
+    const X = await loadXLSX();
+    const wb = X.utils.book_new();
+    const ws = X.utils.aoa_to_sheet([TPL_HEAD].concat(TPL_EXAMPLES));
+    ws["!cols"] = [{ wch: 12 }, { wch: 34 }, { wch: 12 }, { wch: 8 }, { wch: 26 }, { wch: 12 }, { wch: 12 }];
+    ws["!autofilter"] = { ref: "A1:G1" };
+    const help = X.utils.aoa_to_sheet(TPL_HELP);
+    help["!cols"] = [{ wch: 12 }, { wch: 70 }, { wch: 60 }];
+    X.utils.book_append_sheet(wb, ws, "Cashflow");
+    X.utils.book_append_sheet(wb, help, "How to fill");
+    X.writeFile(wb, "cashsight-template.xlsx");
+  } catch(e){
+    downloadCsvTemplate();
+  }
+}
+
+/* An Excel sheet becomes CSV text, so it goes through exactly the same checks as a CSV file. */
+function isoFromDate(d){
+  const x = new Date(d.getTime() + 12 * 3600000);   /* noon guards against time-zone edges */
+  return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+}
+async function xlsxToCSV(buf){
+  const X = await loadXLSX();
+  const wb = X.read(buf, { type: "array", cellDates: true });
+  const name = wb.SheetNames.find(n => n.toLowerCase() === "cashflow") || wb.SheetNames[0];
+  const aoa = X.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: "" });
+  const clean = aoa.filter(r => r.some(c => String(c).trim() !== ""))
+    .map(r => r.slice(0, 7).map(c => c instanceof Date ? isoFromDate(c) : typeof c === "number" ? String(c) : String(c).trim()));
+  return toCSV(clean.map(r => { while (r.length < 7) r.push(""); return r; }));
+}
+
+/* The same invoice is the same type, party, description, amount and due date (case and spaces ignored). */
+const normText = s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+function rowKey(r){
+  return [String(r.type).toLowerCase(), normText(r.party), normText(r.description), parseAmount(r.amount), parseDateAny(r.due)].join("|");
+}
+function mergeRows(incoming, replace){
+  const stats = { added: 0, dup: 0, updated: 0, examples: 0 };
+  const base = replace ? [] : rows.slice();
+  const index = new Map();
+  base.forEach(r => { if (rowIsValid(r)) index.set(rowKey(r), r); });
+  for (const r of incoming){
+    if (isExampleRow(r.description)){ stats.examples++; continue; }
+    const k = rowKey(r);
+    const have = index.get(k);
+    if (!have){ base.push(r); index.set(k, r); stats.added++; continue; }
+    const newPaid = r.paid ? parseDateAny(r.paid) : "";
+    const oldPaid = have.paid ? parseDateAny(have.paid) : "";
+    if (newPaid && newPaid !== oldPaid){ have.paid = newPaid; stats.updated++; }
+    else stats.dup++;
+  }
+  return { merged: base, stats };
+}
+
+function importText(text, fileName){
+  const { rows: parsed, skipReasons: reasons } = parseCSV(text);
+  const replace = isDemo || importMode === "replace";
+  const wasDemo = isDemo;
+  const { merged, stats } = mergeRows(parsed, replace);
+  rows = merged; skipReasons = reasons; whatIf = null; isDemo = false;
+  if (wasDemo){
+    /* your own data starts from today and your own bank balance, not the sample's */
+    el("inpToday").value = localISO(new Date());
+    el("inpBalance").value = "";
+  }
+  renderAll();
+  lastStatus = () => showImportStatus(fileName, stats, reasons.length, wasDemo);
+  lastStatus();
+  if (reasons.length) openDataPanel();
+  if (el("inpBalance").value.trim() === ""){
+    el("startCard").scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => el("inpBalance").focus({ preventScroll: true }), 300);
+  }
+}
+async function importFile(file){
+  if (!file) return;
+  const name = file.name || "file";
+  try {
+    let text;
+    if (/\.(xlsx|xls)$/i.test(name)){
+      try { text = await xlsxToCSV(await file.arrayBuffer()); }
+      catch(e){ lastStatus = () => showStatus("err", t("stFailed").replace("{file}", name), esc(t("xlsxFail"))); lastStatus(); return; }
+    } else {
+      text = await file.text();
+    }
+    if (!text.trim()) throw new Error("empty");
+    importText(text, name);
+  } catch(e){
+    lastStatus = () => showStatus("err", t("stFailed").replace("{file}", name), esc(t("stFailHelp"))); lastStatus();
+  }
+}
+
+/* ---- status line after an import ---- */
+let lastStatus = null;
+function showStatus(kind, title, html){
+  const s = el("importStatus");
+  s.className = "status " + kind; s.hidden = false;
+  el("statusIcon").innerHTML = icon(kind === "err" ? "ic-alert" : "ic-check");
+  el("statusTitle").textContent = title;
+  el("statusText").innerHTML = html || "";
+}
+function hideStatus(){ el("importStatus").hidden = true; lastStatus = null; }
+function showImportStatus(file, st, bad, wasDemo){
+  const chip = (n, k) => n ? '<span class="chip"><b>' + n + "</b> " + esc(t(k)) + "</span>" : "";
+  const anything = st.added || st.updated;
+  const unreadable = !anything && !st.dup && !st.examples && bad;
+  const title = (anything ? t("stImported") : unreadable ? t("stFailed") : t("stNothing")).replace("{file}", file);
+  if (unreadable){ showStatus("err", title, esc(t("stFailHelp")) + chip(bad, "stBad")); return; }
+  const html = chip(st.added, "stAdded") + chip(st.updated, "stUpdated") + chip(st.dup, "stDup") + chip(bad, "stBad") + chip(st.examples, "stEx") +
+    (wasDemo ? '<span class="chip">' + esc(t("stReplaced")) + "</span>" : "");
+  showStatus(bad && !anything ? "err" : "ok", title, html);
+}
+el("btnStatusClose").addEventListener("click", hideStatus);
+
+function openDataPanel(){
+  el("dataPanel").style.display = "block";
+  el("dataToggle").setAttribute("aria-expanded", "true");
+}
+
+/* ---- buttons, file picker, drag and drop ---- */
+const pickFile = () => { el("fileIn").value = ""; el("fileIn").click(); };
+["btnTemplate","btnBannerTemplate","btnTemplate2"].forEach(id => el(id).addEventListener("click", downloadTemplate));
+el("btnTemplateCsv").addEventListener("click", downloadCsvTemplate);
+["btnUpload","btnBannerUpload"].forEach(id => el(id).addEventListener("click", pickFile));
+el("fileIn").addEventListener("change", e => { const f = e.target.files[0]; importFile(f).finally(() => { e.target.value = ""; }); });
+const dz = el("dropzone");
+dz.addEventListener("click", pickFile);
+dz.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); pickFile(); } });
+["dragenter","dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("over"); }));
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) dz.classList.remove("over"); });
+document.addEventListener("drop", e => { e.preventDefault(); dz.classList.remove("over"); });
+document.addEventListener("drop", e => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) importFile(f); });
+
+el("btnModeAdd").addEventListener("click", () => { importMode = "add"; renderStaticText(); });
+el("btnModeReplace").addEventListener("click", () => { importMode = "replace"; renderStaticText(); });
+
+let clearArmed = null;
+el("btnClear").addEventListener("click", () => {
+  if (!clearArmed){
+    el("btnClearLbl").textContent = t("clearConfirm");
+    clearArmed = setTimeout(() => { clearArmed = null; el("btnClearLbl").textContent = t("clearAll"); }, 3000);
+    return;
+  }
+  clearTimeout(clearArmed); clearArmed = null;
+  rows = []; skipReasons = []; whatIf = null; isDemo = false; hideStatus();
+  renderAll();
+});
+
+el("btnImport").addEventListener("click", () => {
+  const text = el("csvBox").value;
+  if (!text.trim()) return;
+  importText(text, lang === "bm" ? "teks yang ditampal" : "pasted text");
+});
+el("btnAddRow").addEventListener("click", () => {
+  rows.push({ _id: "r" + (rowSeq++), date: "", description: "", amount: "", type: "in", party: "", due: "", paid: "" });
+  renderAll();
+  const inputs = el("txBody").querySelectorAll('tr:last-child input[data-c="description"]');
+  if (inputs.length) inputs[0].focus();
+});
+el("btnDemo").addEventListener("click", loadDemo);
+
+/* ---- language ---- */
+function setLang(l){
+  lang = l;
+  document.documentElement.lang = l === "bm" ? "ms" : "en";
+  renderAll();
+}
+el("btnBM").addEventListener("click", () => setLang("bm"));
+el("btnEN").addEventListener("click", () => setLang("en"));
+
+el("dataToggle").addEventListener("click", () => {
+  const panel = el("dataPanel");
+  const open = panel.style.display === "none";
+  panel.style.display = open ? "block" : "none";
+  el("dataToggle").setAttribute("aria-expanded", open ? "true" : "false");
+});
+
+/* ---- main render ---- */
+function recompute(){ renderAll(); }
+function recomputeKeepTable(){ renderAll({ skipTxTable: true }); }
+function renderAll(opts){
+  opts = opts || {};
+  const inp = getInputs();
+  const res = computeAll(validRows(), inp.balance, inp.buffer, inp.today, whatIf);
+  window._lastRes = res;
+  renderStaticText();
+  if (!opts.skipTxTable) renderTxTable();
+  renderSkipNote();
+  const pending = !isDemo && el("inpBalance").value.trim() === "";
+  res.pending = pending;
+  renderCards(res, inp);
+  renderWarnings(res, inp);
+  renderChart(res, inp);
+  renderWeekTable(res);
+  renderWhatIf(res);
+  renderChase(res, inp);
+  renderHabits(res);
+  renderAISummary(res, inp);
+}
+
+function renderSkipNote(){
+  const box = el("skipNote");
+  if (!skipReasons.length){ box.textContent = ""; box.style.display = "none"; return; }
+  box.style.display = "block";
+  const count = skipReasons.length === 1 ? t("rowSkipped") : t("rowsSkipped").replace("{n}", String(skipReasons.length));
+  box.innerHTML = "<b>" + esc(count) + "</b><br>" + skipReasons.map(r => esc(t("skipLine")
+    .replace("{n}", String(r.line)).replace("{reason}", t(r.key).replace("{v}", r.v).replace("{n}", r.v)))).join("<br>");
+}
+
+function setPressed(a, b, firstOn){
+  el(a).classList.toggle("active", firstOn); el(a).setAttribute("aria-pressed", firstOn ? "true" : "false");
+  el(b).classList.toggle("active", !firstOn); el(b).setAttribute("aria-pressed", !firstOn ? "true" : "false");
+}
+function renderStaticText(){
+  const txt = { appSub:"subtitle", lblBalance:"balance", lblBuffer:"buffer", lblToday:"today", lblTx:"tx", lblPaste:"paste",
+    btnImportLbl:"importBtn", btnAddRowLbl:"addRow", btnDemoLbl:"loadDemo",
+    btnTemplateLbl:"template", btnUploadLbl:"uploadFile", btnBannerTemplateLbl:"templateXlsx", btnBannerUploadLbl:"uploadFile",
+    btnTemplate2Lbl:"templateXlsx", btnTemplateCsvLbl:"templateCsv", demoTitle:"demoTitle", demoText:"demoText",
+    lblImport:"importTitle", dzTitle:"dzTitle", dzSub:"dzSub", lblMode:"modeLabel", btnModeAdd:"modeAdd", btnModeReplace:"modeReplace",
+    lblCard1:"card1", lblCard2:"card2", lblCard3:"card3", lblCard4:"card4", lblWarnings:"warnings", lblChart:"chart",
+    lblWeekTable:"weekTable", lblWhatif:"whatif", lblWiInvoice:"wiInvoice", lblWiDate:"wiDate", btnWiApply:"wiApply",
+    btnWiReset:"wiReset", lblChase:"chase", lblHabits:"habits", footnote:"footnote" };
+  for (const id in txt) el(id).textContent = t(txt[id]);
+  el("appTitle").textContent = t("title");
+  el("dataToggleLbl").textContent = t("dataTitle") + " · " + t("rowsWord").replace("{n}", String(rows.length));
+  el("btnLight").setAttribute("aria-label", t("themeLightAria")); el("btnLight").title = t("themeLightAria");
+  el("btnDark").setAttribute("aria-label", t("themeDarkAria")); el("btnDark").title = t("themeDarkAria");
+  el("themeGroup").setAttribute("aria-label", t("themeAria")); el("langGroup").setAttribute("aria-label", t("langAria"));
+  el("btnEN").title = "English"; el("btnBM").title = "Bahasa Melayu";
+  el("chart").setAttribute("aria-label", t("chartAria"));
+  setPressed("btnLight", "btnDark", currentTheme() === "light");
+  setPressed("btnEN", "btnBM", lang === "en");
+  setPressed("btnModeAdd", "btnModeReplace", importMode === "add");
+  if (!clearArmed) el("btnClearLbl").textContent = t("clearAll");
+  el("lblPaste").textContent = t("pasteTitle");
+  el("btnStatusClose").setAttribute("aria-label", lang === "bm" ? "Tutup" : "Close");
+  el("demoBanner").hidden = !isDemo;
+  if (lastStatus && !el("importStatus").hidden) lastStatus();
+  el("lblStart").textContent = t("startTitle");
+  el("wiIntro").textContent = t("wiIntro");
+  const needBalance = !isDemo && el("inpBalance").value.trim() === "";
+  el("startHint").hidden = !needBalance;
+  el("startHint").textContent = t("startHint");
+  el("startCard").classList.toggle("attention", needBalance);
+  el("inpBalance").placeholder = t("balancePh");
+  document.querySelector(".actions").hidden = isDemo;
+}
+
+function renderCards(res, inp){
+  if (res.pending){
+    ["card1","card2"].forEach(id => { el(id).textContent = "–"; el(id).classList.remove("neg"); });
+    el("card1sub").textContent = t("pendingSub"); el("card2sub").textContent = t("pendingSub");
+    el("card3").textContent = fmtMoney(res.totalOwed);
+    el("card3sub").textContent = t("card3sub").replace("{n}", String(res.openIn.length));
+    if (res.slowest){ el("card4").textContent = t("card4big").replace("{d}", String(res.slowest.avgDays)); el("card4sub").textContent = res.slowest.party; }
+    else { el("card4").textContent = "–"; el("card4sub").textContent = ""; }
+    return;
+  }
+  const lw = res.realisticWeeks[res.lowestIdx];
+  const dw = res.dueWeeks[res.dueLowestIdx];
+  const c1 = el("card1");
+  c1.textContent = fmtMoney(lw.closing);
+  c1.classList.toggle("neg", lw.closing < 0);
+  el("card1sub").textContent = t("card1week").replace("{w}", fmtDateShort(lw.start)) + " · " + t("dueDatesSay").replace("{v}", fmtMoney(dw.closing));
+  el("card2").textContent = String(res.shortWeeks.length);
+  el("card2").classList.toggle("neg", res.shortWeeks.length > 0);
+  el("card2sub").textContent = t("card2sub").replace("{buffer}", fmtMoney(inp.buffer));
+  el("card3").textContent = fmtMoney(res.totalOwed);
+  el("card3sub").textContent = t("card3sub").replace("{n}", String(res.openIn.length));
+  if (res.slowest){
+    el("card4").textContent = t("card4big").replace("{d}", String(res.slowest.avgDays));
+    el("card4sub").textContent = t("card4sub").replace("{party}", res.slowest.party);
+  } else { el("card4").textContent = "–"; el("card4sub").textContent = ""; }
+}
+
+let showAllWarnings = false;
+function renderWarnings(res, inp){
+  const box = el("warnings");
+  if (res.pending){ box.innerHTML = '<div class="warning info">' + icon("ic-info") + "<span>" + esc(t("pendingWarn")) + "</span></div>"; return; }
+  if (!res.shortWeeks.length){
+    box.innerHTML = '<div class="warning ok">' + icon("ic-check") + "<span>" + esc(t("noShortWeeks")) + "</span></div>";
+    return;
+  }
+  const list = showAllWarnings ? res.shortWeeks : res.shortWeeks.slice(0, 1);
+  const more = res.shortWeeks.length - list.length;
+  box.innerHTML = list.map(({ index, week }) => {
+    const w = res.realisticWeeks[index];
+    let biggestOut = null;
+    for (const r of w.items) if (r.type === "out" && (!biggestOut || r.amount > biggestOut.amount)) biggestOut = r;
+    const top = res.chase[0];
+    let s;
+    if (biggestOut && top){
+      s = t("warnFull").replace("{week}", fmtDateShort(week.start)).replace("{closing}", fmtMoney(w.closing))
+        .replace("{desc}", biggestOut.description).replace("{amount}", fmtMoney(biggestOut.amount))
+        .replace("{date}", fmtDateShort(res.arrivals[biggestOut._id])).replace("{party}", top.row.party)
+        .replace("{invAmount}", fmtMoney(top.row.amount)).replace("{due}", fmtDateShort(top.row.due))
+        .replace("{arrival}", fmtDateShort(top.arrival));
+    } else {
+      s = t("warnShort").replace("{week}", fmtDateShort(week.start)).replace("{closing}", fmtMoney(w.closing)).replace("{buffer}", fmtMoney(inp.buffer));
+    }
+    return '<div class="warning">' + icon("ic-alert") + "<span>" + esc(s) + "</span></div>";
+  }).join("") + (res.shortWeeks.length > 1 ? '<button class="btn sm ghost more" type="button" id="btnMoreWarn">' +
+    esc(showAllWarnings ? t("warnLess") : t("warnMore").replace("{n}", String(more))) + "</button>" : "");
+}
+
+el("warnings").addEventListener("click", e => {
+  if (!e.target.closest("#btnMoreWarn")) return;
+  showAllWarnings = !showAllWarnings;
+  renderWarnings(window._lastRes, getInputs());
+});
+
+/* ---- chart ---- */
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+const SERIES = [
+  { key: "real",   label: "legendReal" },
+  { key: "due",    label: "legendDue" },
+  { key: "buffer", label: "legendBuffer" },
+  { key: "in",     label: "legendIn" },
+  { key: "out",    label: "legendOut" }
+];
+function swatch(key, C){
+  if (key === "real") return '<svg viewBox="0 0 26 12"><line x1="1" y1="6" x2="25" y2="6" stroke="' + C.real + '" stroke-width="3" stroke-linecap="round"/><circle cx="13" cy="6" r="3.5" fill="' + C.real + '"/></svg>';
+  if (key === "due") return '<svg viewBox="0 0 26 12"><line x1="1" y1="6" x2="25" y2="6" stroke="' + C.due + '" stroke-width="2.5" stroke-dasharray="5 3.5" stroke-linecap="round"/></svg>';
+  if (key === "buffer") return '<svg viewBox="0 0 26 12"><line x1="1" y1="6" x2="25" y2="6" stroke="' + C.buffer + '" stroke-width="2" stroke-dasharray="2.5 3" stroke-linecap="round"/></svg>';
+  const col = key === "in" ? C.inBar : C.outBar;
+  return '<svg viewBox="0 0 26 12"><rect x="7" y="0.5" width="12" height="11" rx="3" fill="' + col + '"/></svg>';
+}
+function renderLegend(C){
+  el("legend").innerHTML = SERIES.map(s =>
+    '<button type="button" data-series="' + s.key + '" aria-pressed="' + (hidden[s.key] ? "false" : "true") + '">' +
+    swatch(s.key, C) + '<span class="lbl">' + esc(t(s.label)) + "</span></button>").join("");
+}
+el("legend").addEventListener("click", e => {
+  const b = e.target.closest("button[data-series]"); if (!b || !chart) return;
+  const k = b.getAttribute("data-series");
+  hidden[k] = !hidden[k];
+  const idx = SERIES.findIndex(s => s.key === k);
+  chart.setDatasetVisibility(idx, !hidden[k]);
+  chart.update();
+  b.setAttribute("aria-pressed", hidden[k] ? "false" : "true");
+});
+
+function renderChart(res, inp){
+  const fallback = el("chartFallback");
+  const C = {
+    grid: cssVar("--chart-grid"), tick: cssVar("--chart-tick"), text: cssVar("--text"), muted: cssVar("--muted"),
+    card: cssVar("--card"), border: cssVar("--border-strong"), inBar: cssVar("--chart-in"), outBar: cssVar("--chart-out"),
+    real: cssVar("--chart-real"), realFill: cssVar("--chart-real-fill"), due: cssVar("--chart-due"),
+    buffer: cssVar("--chart-buffer"), belowZero: cssVar("--chart-belowzero")
+  };
+  renderLegend(C);
+  if (typeof Chart === "undefined"){
+    el("chartBox").style.display = "none"; el("legend").style.display = "none";
+    fallback.style.display = "block"; fallback.textContent = t("chartFail");
+    return;
+  }
+  el("chartBox").style.display = "block"; fallback.style.display = "none";
+  if (chart) chart.destroy();
+  const rm = v => (v < 0 ? "-RM " : "RM ") + Math.abs(Math.round(v)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const rmShort = v => { const a = Math.abs(v); const s = a >= 1000 ? (a / 1000).toLocaleString("en-US", { maximumFractionDigits: 0 }) + "k" : String(a); return (v < 0 ? "-RM " : "RM ") + s; };
+  const belowZero = { id: "belowZero", beforeDatasetsDraw(c){
+    const { ctx, chartArea: a, scales: { y } } = c; if (!a) return;
+    const zero = y.getPixelForValue(0);
+    if (zero < a.bottom){ ctx.save(); ctx.fillStyle = C.belowZero; const top = Math.max(zero, a.top); ctx.fillRect(a.left, top, a.right - a.left, a.bottom - top); ctx.restore(); }
+  } };
+  const realFill = (context) => {
+    const { chart: c } = context; const a = c.chartArea; if (!a) return C.realFill;
+    const g = c.ctx.createLinearGradient(0, a.top, 0, a.bottom);
+    g.addColorStop(0, C.realFill); g.addColorStop(1, "rgba(0,0,0,0)"); return g;
+  };
+  const mobile = window.innerWidth < 600;
+  chart = new Chart(el("chart"), {
+    type: "bar",
+    data: {
+      labels: res.weekStarts.map(fmtDateShort),
+      datasets: [
+        { label: t("legendReal"), data: res.realisticWeeks.map(w => w.closing), type: "line", borderColor: C.real, backgroundColor: realFill,
+          fill: "origin", borderWidth: 3, cubicInterpolationMode: "monotone", pointRadius: mobile ? 3 : 4, pointHoverRadius: 6,
+          pointBackgroundColor: C.real, pointBorderColor: C.card, pointBorderWidth: 2, order: 1, hidden: hidden.real || res.pending },
+        { label: t("legendDue"), data: res.dueWeeks.map(w => w.closing), type: "line", borderColor: C.due, borderWidth: 2.25,
+          borderDash: [7, 5], cubicInterpolationMode: "monotone", pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: C.due, fill: false, order: 2, hidden: hidden.due || res.pending },
+        { label: t("legendBuffer"), data: res.weekStarts.map(() => inp.buffer), type: "line", borderColor: C.buffer, borderWidth: 1.75,
+          borderDash: [3, 4], pointRadius: 0, pointHoverRadius: 0, fill: false, order: 3, hidden: hidden.buffer },
+        { label: t("legendIn"), data: res.realisticWeeks.map(w => w.in), backgroundColor: C.inBar, borderRadius: 5,
+          borderSkipped: false, maxBarThickness: 26, categoryPercentage: .62, barPercentage: .9, order: 4, hidden: hidden.in },
+        { label: t("legendOut"), data: res.realisticWeeks.map(w => w.out), backgroundColor: C.outBar, borderRadius: 5,
+          borderSkipped: false, maxBarThickness: 26, categoryPercentage: .62, barPercentage: .9, order: 5, hidden: hidden.out }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 350 },
+      interaction: { mode: "index", intersect: false },
+      layout: { padding: { top: 6, right: 4 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: C.card, borderColor: C.border, borderWidth: 1, titleColor: C.text, bodyColor: C.text,
+          padding: 12, cornerRadius: 10, boxPadding: 6, usePointStyle: true,
+          titleFont: { weight: "600" }, bodyFont: { size: 13 },
+          callbacks: {
+            title: items => (lang === "bm" ? "Minggu " : "Week of ") + items[0].label,
+            label: ctx => " " + ctx.dataset.label + ": " + rm(ctx.parsed.y),
+            labelPointStyle: ctx => ({ pointStyle: ctx.dataset.type === "line" ? "line" : "rectRounded", rotation: 0 })
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { color: C.tick, font: { size: 12 }, maxRotation: 0, autoSkip: true } },
+        y: { grid: { color: C.grid }, border: { display: false },
+             ticks: { color: C.tick, font: { size: 12 }, padding: 8, maxTicksLimit: 7, callback: v => mobile ? rmShort(v) : rm(v) } }
+      }
+    },
+    plugins: [belowZero]
+  });
+}
+
+/* ---- theme ---- */
+function currentTheme(){ return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"; }
+function applyTheme(theme){
+  document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem("cashsight.theme", theme); } catch(e){}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", theme === "dark" ? "#0B0E13" : "#F5F6F8");
+  setPressed("btnLight", "btnDark", theme === "light");
+  if (window._lastRes) renderChart(window._lastRes, getInputs());
+}
+el("btnLight").addEventListener("click", () => applyTheme("light"));
+el("btnDark").addEventListener("click", () => applyTheme("dark"));
+
+/* ---- weekly table ---- */
+function renderWeekTable(res){
+  el("weekHead").innerHTML = [["hWeek",""],["hIn","right"],["hOut","right"],["hNet","right"],["hCloseReal","right"],["hCloseDue","right"]]
+    .map(([k, c]) => '<th class="' + c + '">' + esc(t(k)) + "</th>").join("");
+  const shortIdx = new Set(res.shortWeeks.map(s => s.index));
+  const m = v => '<td class="right' + (v < 0 ? " neg" : "") + '"' + (v < 0 ? ' style="font-weight:700"' : "") + ">" + fmtMoney(v) + "</td>";
+  el("weekBody").innerHTML = res.realisticWeeks.map((w, i) =>
+    "<tr" + (shortIdx.has(i) ? ' class="short"' : "") + "><td>" + fmtDateShort(w.start) + "</td>" +
+    '<td class="right">' + fmtMoney(w.in) + "</td>" + '<td class="right">' + fmtMoney(w.out) + "</td>" +
+    m(w.net) + (res.pending ? '<td class="right muted">–</td><td class="right muted">–</td>' : m(w.closing) + m(res.dueWeeks[i].closing)) + "</tr>").join("");
+}
+
+/* ---- what-if ---- */
+function previewWhatIf(){
+  const box = el("wiPreview");
+  const res = window._lastRes; if (!res) return;
+  const id = el("wiSelect").value, date = el("wiDate").value;
+  if (!id || !isValidDateStr(date)){ box.textContent = t("wiPick"); return; }
+  if (res.pending){ box.textContent = t("pendingSub"); return; }
+  const inp = getInputs();
+  const base = computeAll(validRows(), inp.balance, inp.buffer, inp.today, null);
+  const alt = computeAll(validRows(), inp.balance, inp.buffer, inp.today, { rowId: id, date });
+  const from = base.realisticWeeks[base.lowestIdx].closing, to = alt.realisticWeeks[alt.lowestIdx].closing;
+  const n = alt.shortWeeks.length;
+  const nTxt = n === 0 ? t("wiShort0") : n === 1 ? t("wiShort1") : t("wiShortN").replace("{n}", String(n));
+  const cls = to > from ? "up" : to < from ? "down" : "";
+  box.innerHTML = esc(t("wiPreview").replace("{date}", fmtDateShort(date)).replace("{n}", nTxt))
+    .replace("{from}", "<b>" + esc(fmtMoney(from)) + "</b>")
+    .replace("{to}", '<span class="' + cls + '">' + esc(fmtMoney(to)) + "</span>");
+}
+function renderWhatIf(res){
+  const sel = el("wiSelect");
+  const prev = whatIf ? whatIf.rowId : sel.value;
+  if (!res.openIn.length){
+    sel.innerHTML = '<option value="">–</option>'; el("wiDate").value = "";
+  } else {
+    sel.innerHTML = res.openIn.map(r => '<option value="' + esc(r._id) + '">' + esc(r.party + " · " + fmtMoney(r.amount) + " · " + t("dueWord") + " " + fmtDateShort(r.due)) + "</option>").join("");
+    if (whatIf) sel.value = whatIf.rowId;
+    else if (prev && res.openIn.some(r => r._id === prev)) sel.value = prev;
+    const r0 = res.openIn.find(r => r._id === sel.value) || res.openIn[0];
+    el("wiDate").value = whatIf && whatIf.rowId === sel.value ? whatIf.date : r0.due;
+  }
+  el("whatifTag").textContent = t("wiTag");
+  el("whatifTag").classList.toggle("on", !!whatIf);
+  el("btnWiReset").disabled = !whatIf;
+  previewWhatIf();
+}
+el("btnWiApply").addEventListener("click", () => {
+  const id = el("wiSelect").value, date = el("wiDate").value;
+  if (id && isValidDateStr(date)){ whatIf = { rowId: id, date }; renderAll(); }
+});
+el("btnWiReset").addEventListener("click", () => { whatIf = null; renderAll(); });
+el("wiSelect").addEventListener("change", () => {
+  const r = window._lastRes.openIn.find(x => x._id === el("wiSelect").value);
+  if (r && !(whatIf && whatIf.rowId === el("wiSelect").value)) el("wiDate").value = r.due;
+  previewWhatIf();
+});
+el("wiDate").addEventListener("input", previewWhatIf);
+
+/* ---- chase list ---- */
+function renderChase(res){
+  const box = el("chaseList");
+  if (!res.chase.length){ box.innerHTML = '<div class="empty">' + esc(t("nothingToChase")) + "</div>"; return; }
+  const sep = '<span class="sep">·</span>';
+  box.innerHTML = res.chase.map((item, i) => {
+    const r = item.row;
+    const c = customerAvg(res.habits, res.overallAvg, r.party);
+    let tags = "";
+    if (item.tooLate) tags += '<span class="tag red">' + esc(t("tagTooLate")) + "</span>";
+    if (res.overdue[r._id]) tags += '<span class="tag">' + esc(t("tagOverdue")) + "</span>";
+    const avgText = c.noHistory ? t("noHistory") : t("avgLate").replace("{d}", String(c.avg));
+    return '<div class="chase-item"><div style="display:flex;gap:12px;align-items:flex-start;min-width:0">' +
+      '<span class="rank">' + (i + 1) + "</span><div style=\"min-width:0\">" +
+      '<div class="chase-top"><strong>' + esc(r.party) + '</strong><span class="amt num">' + fmtMoney(r.amount) + "</span>" + tags + "</div>" +
+      '<div class="chase-meta">' + esc(r.description) + sep + esc(t("dueWord")) + " " + fmtDateShort(r.due) + sep +
+      esc(t("expected")) + " " + fmtDateShort(item.arrival) + sep + esc(avgText) + "</div></div></div>" +
+      '<button class="btn sm" type="button" data-chase="' + i + '">' + icon("ic-copy") + "<span>" + esc(t("copyReminder")) + "</span></button></div>";
+  }).join("");
+}
+el("chaseList").addEventListener("click", e => {
+  const b = e.target.closest("button[data-chase]"); if (!b) return;
+  const item = window._lastRes.chase[Number(b.getAttribute("data-chase"))];
+  const inp = getInputs(); const r = item.row;
+  const overdue = r.due < inp.today;
+  const key = lang === "bm" ? (overdue ? "reminderDuePastBM" : "reminderDueFutureBM") : (overdue ? "reminderDuePast" : "reminderDueFuture");
+  const msg = t(key).replace("{party}", r.party).replace("{desc}", r.description).replace("{amount}", fmtMoney(r.amount))
+    .replace("{due}", fmtDateShort(r.due)).replace("{payBy}", fmtDateShort(addDays(inp.today, 3)));
+  copyToClipboard(msg, b);
+});
+function copyToClipboard(text, btn){
+  const done = () => {
+    const html = btn.innerHTML;
+    btn.classList.add("done"); btn.innerHTML = icon("ic-check") + "<span>" + esc(t("copied")) + "</span>";
+    setTimeout(() => { btn.classList.remove("done"); btn.innerHTML = html; }, 1800);
+  };
+  const fallback = () => { el("clipboardBox").style.display = "block"; el("clipboardText").value = text; el("clipboardText").select(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(fallback);
+  else fallback();
+}
+
+/* ---- habits ---- */
+function renderHabits(res){
+  el("habitHead").innerHTML = [["colParty",""],["hCount","right"],["hAvg","right"],["hLabel",""]].map(([k, c]) => '<th class="' + c + '">' + esc(t(k)) + "</th>").join("");
+  const parties = Object.keys(res.habits);
+  const seen = new Set(parties);
+  for (const r of res.openIn) if (!seen.has(r.party)){ seen.add(r.party); parties.push(r.party); }
+  parties.sort();
+  el("habitBody").innerHTML = parties.map(p => {
+    const c = customerAvg(res.habits, res.overallAvg, p); const h = res.habits[p];
+    const label = c.noHistory ? t("noHistory") : (h.avgDays <= 0 ? t("labelHistory") : t("labelLate"));
+    const tag = c.noHistory ? '<span class="tag">' + esc(label) + "</span>" : h.avgDays > 14 ? '<span class="tag red">' + esc(label) + "</span>" : esc(label);
+    return "<tr><td>" + esc(p) + '</td><td class="right">' + (h ? h.paidCount : 0) + '</td><td class="right">' + c.avg + "</td><td>" + tag + "</td></tr>";
+  }).join("");
+}
+
+/* ---- summary (templated from computed numbers; optional AI host hook) ---- */
+let aiTimer = null;
+function renderAISummary(res, inp){
+  const lines = buildTemplatedSummary(res, inp.balance, inp.buffer, inp.today, lang);
+  const card = el("aiSummaryCard"), box = el("aiSummary");
+  card.classList.toggle("pending", !!res.pending);
+  if (res.pending){
+    card.classList.remove("bad");
+    el("sumBadge").innerHTML = icon("ic-info");
+    box.innerHTML = '<p class="line">' + esc(t("pendingTitle")) + '</p><p class="line">' + esc(t("pendingText")) + "</p>";
+    return;
+  }
+  const bad = res.shortWeeks.length > 0;
+  card.classList.toggle("bad", bad);
+  el("sumBadge").innerHTML = icon(bad ? "ic-alert" : "ic-check");
+  const from = t("fromLine").replace("{bal}", fmtMoney(inp.balance)).replace("{date}", fmtDateShort(inp.today));
+  box.innerHTML = '<p class="line">' + esc(lines[0]) + '</p><p class="line lines-rest">' + lines.slice(1).map(esc).join(" · ") + "</p>" +
+    '<div class="note">' + esc(from) + " · " + esc(t("aiNote")) + "</div>";
+  if (typeof window.CASHSIGHT_AI_PROVIDER !== "function") return;
+  const payload = {
+    language: lang,
+    lowest_realistic: { amount: res.realisticWeeks[res.lowestIdx].closing, week_start: res.realisticWeeks[res.lowestIdx].start },
+    lowest_due_dates: { amount: res.dueWeeks[res.dueLowestIdx].closing, week_start: res.dueWeeks[res.dueLowestIdx].start },
+    short_weeks: res.shortWeeks.map(s => ({ week_start: s.week.start, closing: s.week.closing })),
+    short_week_count: res.shortWeeks.length,
+    top_chase: res.chase.length ? { party: res.chase[0].row.party, amount: res.chase[0].row.amount, avg_days_late: customerAvg(res.habits, res.overallAvg, res.chase[0].row.party).avg } : null,
+    slowest_payer: res.slowest, total_owed: res.totalOwed
+  };
+  const instruction = "Use only the numbers in this JSON. Do not calculate, round, change or add any number. If a number is not in the JSON, do not mention it. Answer with exactly 3 short lines in the chosen language for a busy owner.";
+  Promise.race([ window.CASHSIGHT_AI_PROVIDER(payload, instruction), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)) ])
+    .then(answer => { if (typeof answer === "string" && answer.trim()) box.innerHTML = answer.trim().split("\n").map(l => '<p class="line">' + esc(l) + "</p>").join(""); })
+    .catch(() => {});
+}
+
+["inpBalance","inpBuffer","inpToday"].forEach(id => el(id).addEventListener("input", () => renderAll()));
+["inpBalance","inpBuffer"].forEach(id => {
+  const box = el(id);
+  /* keep only digits, one dot and commas while typing */
+  box.addEventListener("beforeinput", e => {
+    if (!e.data || !/[^\d.,]/.test(e.data)) return;
+    e.preventDefault();                                   /* "RM 45,000.50" pasted becomes 45,000.50 */
+    const clean = e.data.replace(/[^\d.,]/g, "");
+    if (clean){ box.setRangeText(clean, box.selectionStart, box.selectionEnd, "end"); box.dispatchEvent(new Event("input", { bubbles: true })); }
+  });
+  /* tidy to 25,000 when leaving the box */
+  box.addEventListener("blur", () => { if (box.value.trim() !== ""){ box.value = moneyText(moneyValue(box.value)); renderAll(); } });
+});
+
+/* ---- self-test note ---- */
+function renderSelfTest(){
+  const checks = runSelfTest();
+  const failed = checks.filter(c => !c.pass);
+  const box = el("selfTest");
+  if (!failed.length){
+    box.className = "pass";
+    box.innerHTML = icon("ic-shield") + "<span>" + esc(t("testPass").replace(/\{n\}/g, String(checks.length))) + "</span>";
+  } else {
+    box.className = "fail";
+    box.textContent = t("testFail") + "\n" + failed.map(c => c.name + " — expected " + c.expected + ", actual " + c.actual).join("\n");
+  }
+}
+
+/* ---- persistence ---- */
+function saveState(){
+  try{ localStorage.setItem("cashsight.v1", JSON.stringify({ rows, lang, isDemo, importMode, balance: el("inpBalance").value, buffer: el("inpBuffer").value, today: el("inpToday").value })); }catch(e){}
+}
+function loadState(){
+  try{
+    const s = JSON.parse(localStorage.getItem("cashsight.v1"));
+    if (!s || !Array.isArray(s.rows)) return false;
+    rows = s.rows; whatIf = null;
+    lang = s.lang === "bm" ? "bm" : "en";
+    isDemo = s.isDemo !== false;
+    importMode = s.importMode === "replace" ? "replace" : "add";
+    el("inpBalance").value = s.balance !== undefined ? s.balance : "30,000";
+    el("inpBuffer").value = s.buffer !== undefined ? s.buffer : "5,000";
+    el("inpToday").value = s.today || "2026-11-17";
+    return true;
+  }catch(e){ return false; }
+}
+
+/* ---- boot ---- */
+if (!loadState()){
+  rows = parseCSV(DEMO_CSV).rows; isDemo = true;
+  el("inpBalance").value = "30,000"; el("inpBuffer").value = "5,000"; el("inpToday").value = "2026-11-17";
+}
+const _renderAll = renderAll;
+renderAll = function(opts){ _renderAll(opts); saveState(); };
+setLang(lang);
+renderSelfTest();
+/* language also changes the self-test line */
+const _setLang = setLang;
+setLang = function(l){ _setLang(l); renderSelfTest(); };
+window.addEventListener("beforeunload", saveState);
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (window._lastRes) renderChart(window._lastRes, getInputs()); }, 200); });
+</script>
+</body>
+</html>
